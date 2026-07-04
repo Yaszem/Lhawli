@@ -542,6 +542,10 @@ def page_animal_detail(animal_id):
                         st.rerun()
                 with dc2:
                     if st.button("Confirmer la suppression", use_container_width=True, key="confirm_delete"):
+                        photos_to_delete = a.get("photos") or ([a["photo"]] if a.get("photo") else [])
+                        if photos_to_delete:
+                            with st.spinner("Suppression des photos…"):
+                                supa_storage.delete_photos(photos_to_delete)
                         st.session_state.animals = [x for x in st.session_state.animals if x["id"] != a["id"]]
                         sync_animals()
                         st.session_state.confirm_delete_id = None
@@ -1084,6 +1088,12 @@ def page_animals():
                     st.rerun()
             with ac3:
                 if st.button("Supprimer",use_container_width=True):
+                    a_to_delete = next((a for a in st.session_state.animals if a["id"]==sel_id), None)
+                    if a_to_delete:
+                        photos_to_delete = a_to_delete.get("photos") or ([a_to_delete["photo"]] if a_to_delete.get("photo") else [])
+                        if photos_to_delete:
+                            with st.spinner("Suppression des photos…"):
+                                supa_storage.delete_photos(photos_to_delete)
                     st.session_state.animals=[a for a in st.session_state.animals if a["id"]!=sel_id]
                     sync_animals()
                     alert_box("Supprimé.", "success"); st.rerun()
@@ -1149,7 +1159,7 @@ def photo_uploader_block(key_prefix, current_photos):
                     url_to_delete = st.session_state[state_key][i]
                     # Supprimer de Supabase
                     with st.spinner("Suppression…"):
-                        supa_storage.delete_photo(url_to_delete)
+                        supa_storage.delete_photos([url_to_delete])
                     st.session_state[state_key].pop(i)
                     st.rerun()
 
@@ -1731,7 +1741,7 @@ def page_users():
 def page_settings():
     auth=st.session_state.auth; is_obs=auth["role"]=="Observateur"
     st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">{svg("settings",22,ACCENT)}<span style="font-size:22px;font-weight:700">Paramètres</span></div>', unsafe_allow_html=True)
-    for label,default in [("Nom de l'exploitation","Ferme El Baraka"),("Responsable",auth["name"])]:
+    for label,default in [("Nom de l'exploitation","Ferme El Baraka"),("Responsable",auth["name"]),("Localisation","Tiaret, Algérie"),("Contact","+213 XX XX XX XX")]:
         st.text_input(label,value=default,disabled=is_obs)
     if not is_obs:
         if st.button("Enregistrer"): alert_box("Paramètres enregistrés.", "success")
