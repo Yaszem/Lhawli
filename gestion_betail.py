@@ -682,8 +682,9 @@ def login_page():
             password = st.text_input("Mot de passe", placeholder="••••••••", type="password", key="login_pwd")
             if st.button("Se connecter", use_container_width=True, key="btn_login"):
                 users = st.session_state.get("users", db.load_users())
+                email_norm = email.strip().lower()
                 user  = next((u for u in users
-                              if u["email"]==email and db.verify_password(password, u["password"])), None)
+                              if u["email"].strip().lower()==email_norm and db.verify_password(password, u["password"])), None)
                 if not user:
                     st.error("Email ou mot de passe incorrect.")
                 elif user.get("statut","Actif") == "En attente":
@@ -711,7 +712,7 @@ def login_page():
                 if "@" not in r_email:   errors.append("Email invalide.")
                 if len(r_pwd) < 6:       errors.append("Mot de passe trop court (min. 6 caractères).")
                 if r_pwd != r_pwd2:      errors.append("Les mots de passe ne correspondent pas.")
-                if any(u["email"]==r_email for u in users):
+                if any(u["email"].strip().lower()==r_email.strip().lower() for u in users):
                     errors.append("Cet email est déjà utilisé.")
                 if errors:
                     for e in errors: st.error(e)
@@ -1575,6 +1576,22 @@ def page_users():
     mc3.metric("Refusés", len(refuses))
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    if is_admin:
+        plaintext_count = sum(1 for u in users if u.get("password") and "$" not in u["password"])
+        if plaintext_count:
+            wic, wbc = st.columns([0.06, 0.94])
+            with wic:
+                st.markdown(f"<div style='padding-top:8px;'>{svg('lock',16,'#C62828')}</div>", unsafe_allow_html=True)
+            with wbc:
+                st.markdown(f"<div style='font-size:12px;color:#C62828;padding-top:8px;'>{plaintext_count} mot(s) de passe encore stocké(s) en clair.</div>", unsafe_allow_html=True)
+            if st.button("Sécuriser les mots de passe en clair", key="migrate_pwd_btn"):
+                with st.spinner("Chiffrement des mots de passe…"):
+                    n = db.migrate_plaintext_passwords()
+                st.session_state.users = db.load_users()
+                alert_box(f"{n} mot(s) de passe chiffré(s) avec succès.", "success")
+                st.rerun()
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     if is_admin and en_attente:
         st.markdown(f"""

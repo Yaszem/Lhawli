@@ -280,9 +280,26 @@ def register_user(email, password, name):
     hashed_pwd = hash_password(password)
     # Ordre : email | password | name | role | statut | date_inscription
     ws.append_row(
-        [email.strip(), hashed_pwd, name.strip(), "Observateur", "En attente", date_now],
+        [email.strip().lower(), hashed_pwd, name.strip(), "Observateur", "En attente", date_now],
         value_input_option="USER_ENTERED"
     )
+
+
+def migrate_plaintext_passwords():
+    """
+    Parcourt tous les utilisateurs et hache les mots de passe encore stockés en clair
+    (ceux qui ne contiennent pas de '$', signature du format haché).
+    Retourne le nombre de mots de passe migrés.
+    """
+    users = load_users()
+    migrated = 0
+    for u in users:
+        if u.get("password") and "$" not in u["password"]:
+            u["password"] = hash_password(u["password"])
+            migrated += 1
+    if migrated:
+        save_all_users(users)
+    return migrated
 
 
 def add_race(race_type, race_name):
