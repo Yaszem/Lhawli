@@ -1,16 +1,51 @@
 """
-database.py — Connexion Google Sheets pour Élevio
+database.py — Connexion Google Sheets pour Lhawli
 Gère la lecture/écriture des animaux, races et utilisateurs.
 """
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import hashlib
+import hmac
+import os
+import binascii
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+# ── Sécurité mots de passe ──────────────────────────────────────────
+PBKDF2_ITERATIONS = 100_000
+
+def hash_password(password: str) -> str:
+    """Hache un mot de passe avec un sel aléatoire (PBKDF2-HMAC-SHA256)."""
+    salt = os.urandom(16)
+    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return f"{binascii.hexlify(salt).decode()}${binascii.hexlify(pwd_hash).decode()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """
+    Vérifie un mot de passe contre sa version stockée.
+    Compatible avec d'anciens mots de passe en clair déjà présents dans le Sheet
+    (comparaison directe en fallback) pour ne pas bloquer les comptes existants.
+    """
+    if not stored:
+        return False
+    if "$" in stored:
+        try:
+            salt_hex, hash_hex = stored.split("$", 1)
+            salt = binascii.unhexlify(salt_hex)
+            expected = binascii.unhexlify(hash_hex)
+            pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+            return hmac.compare_digest(pwd_hash, expected)
+        except Exception:
+            return False
+    # Ancien format : mot de passe en clair (compatibilité ascendante)
+    return hmac.compare_digest(password, stored)
+
 
 # ── En-têtes ─────────────────────────────────────────────────────────
 HEADERS_ANIMAUX = ["id","type","race","sex","birth","earTag","buyPrice",
@@ -20,9 +55,9 @@ HEADERS_USERS   = ["email","password","name","role","statut","date_inscription"]
 #                                                    ^^^^^^^ En attente / Actif / Refusé
 
 DEFAULT_USERS = [
-    ["admin@elevio.fr",   "admin123",   "Ahmed Benali",    "Administrateur", "Actif",      "2024-01-01"],
-    ["manager@elevio.fr", "manager123", "Fatima Zahra",    "Gestionnaire",   "Actif",      "2024-01-01"],
-    ["observer@elevio.fr","obs123",     "Karim Moussaoui", "Observateur",    "Actif",      "2024-01-01"],
+    ["admin@elevio.fr",    hash_password("admin123"),   "Ahmed Benali",    "Administrateur", "Actif", "2024-01-01"],
+    ["manager@elevio.fr",  hash_password("manager123"), "Fatima Zahra",    "Gestionnaire",   "Actif", "2024-01-01"],
+    ["observer@elevio.fr", hash_password("obs123"),     "Karim Moussaoui", "Observateur",    "Actif", "2024-01-01"],
 ]
 
 DEFAULT_RACES = [
@@ -238,13 +273,14 @@ def save_all_users(users):
 
 
 def register_user(email, password, name):
-    """Ajoute un nouvel utilisateur avec statut 'En attente'."""
+    """Ajoute un nouvel utilisateur avec statut 'En attente'. Le mot de passe est haché avant stockage."""
     sh = get_spreadsheet()
     ws = sh.worksheet("Users")
     date_now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    hashed_pwd = hash_password(password)
     # Ordre : email | password | name | role | statut | date_inscription
     ws.append_row(
-        [email.strip(), password, name.strip(), "Observateur", "En attente", date_now],
+        [email.strip(), hashed_pwd, name.strip(), "Observateur", "En attente", date_now],
         value_input_option="USER_ENTERED"
     )
 

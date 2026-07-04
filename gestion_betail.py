@@ -652,6 +652,26 @@ def login_page():
               Suivi en temps réel, gestion des ventes,<br>statistiques et rapports pour votre exploitation.
             </div>
           </div>
+          <div style="background:rgba(255,255,255,.07);border-radius:14px;padding:16px 18px;">
+            <div style="color:rgba(255,255,255,.45);font-size:10px;font-weight:700;
+                        text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">
+              Rôles disponibles
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <div style="background:rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;flex:1;">
+                <div style="color:#fff;font-size:11px;font-weight:700;">Administrateur</div>
+                <div style="color:rgba(255,255,255,.5);font-size:10px;">Accès complet</div>
+              </div>
+              <div style="background:rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;flex:1;">
+                <div style="color:#fff;font-size:11px;font-weight:700;">Gestionnaire</div>
+                <div style="color:rgba(255,255,255,.5);font-size:10px;">Lecture + Écriture</div>
+              </div>
+              <div style="background:rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;flex:1;">
+                <div style="color:#fff;font-size:11px;font-weight:700;">Observateur</div>
+                <div style="color:rgba(255,255,255,.5);font-size:10px;">Lecture seule</div>
+              </div>
+            </div>
+          </div>
         </div>""", unsafe_allow_html=True)
     with col_r:
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
@@ -663,7 +683,7 @@ def login_page():
             if st.button("Se connecter", use_container_width=True, key="btn_login"):
                 users = st.session_state.get("users", db.load_users())
                 user  = next((u for u in users
-                              if u["email"]==email and u["password"]==password), None)
+                              if u["email"]==email and db.verify_password(password, u["password"])), None)
                 if not user:
                     st.error("Email ou mot de passe incorrect.")
                 elif user.get("statut","Actif") == "En attente":
