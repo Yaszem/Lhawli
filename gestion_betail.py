@@ -1738,7 +1738,7 @@ def page_users():
 def page_settings():
     auth=st.session_state.auth; is_obs=auth["role"]=="Observateur"
     st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">{svg("settings",22,ACCENT)}<span style="font-size:22px;font-weight:700">Paramètres</span></div>', unsafe_allow_html=True)
-    for label,default in [("Nom de l'exploitation","Ferme El Baraka"),("Responsable",auth["name"]),("Localisation","Tiaret, Algérie"),("Contact","+213 XX XX XX XX")]:
+    for label,default in [("Responsable",auth["name"])]:
         st.text_input(label,value=default,disabled=is_obs)
     if not is_obs:
         if st.button("Enregistrer"): alert_box("Paramètres enregistrés.", "success")
