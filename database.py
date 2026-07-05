@@ -49,7 +49,7 @@ def verify_password(password: str, stored: str) -> bool:
 
 # ── En-têtes ─────────────────────────────────────────────────────────
 HEADERS_ANIMAUX = ["id","type","race","sex","birth","earTag","buyPrice",
-                   "sellPrice","status","weight","notes","photo","photos"]
+                   "sellPrice","status","weight","notes","photo","photos","origin"]
 HEADERS_RACES   = ["type","race"]
 HEADERS_USERS   = ["email","password","name","role","statut","date_inscription"]
 #                                                    ^^^^^^^ En attente / Actif / Refusé
@@ -68,11 +68,11 @@ DEFAULT_RACES = [
 ]
 
 DEFAULT_ANIMALS = [
-    [1,"Mouton","Mérinos","Mâle","2022-03-15","MO-2022-001",180,320,"Disponible",65,"","",""],
-    [2,"Vache","Holstein","Femelle","2020-07-22","VA-2020-045",1200,2100,"Vendu",580,"","",""],
-    [3,"Mouton","Lacaune","Femelle","2023-01-10","MO-2023-012",150,290,"Disponible",52,"Bonne laitière","",""],
-    [4,"Vache","Charolaise","Mâle","2021-05-03","VA-2021-008",980,1850,"Disponible",720,"","",""],
-    [5,"Mouton","Romanov","Mâle","2023-08-19","MO-2023-034",130,250,"Disponible",48,"","",""],
+    [1,"Mouton","Mérinos","Mâle","2022-03-15","MO-2022-001",180,320,"Disponible",65,"","","","Achat"],
+    [2,"Vache","Holstein","Femelle","2020-07-22","VA-2020-045",1200,2100,"Vendu",580,"","","","Achat"],
+    [3,"Mouton","Lacaune","Femelle","2023-01-10","MO-2023-012",150,290,"Disponible",52,"Bonne laitière","","","Naissance"],
+    [4,"Vache","Charolaise","Mâle","2021-05-03","VA-2021-008",980,1850,"Disponible",720,"","","","Achat"],
+    [5,"Mouton","Romanov","Mâle","2023-08-19","MO-2023-034",130,250,"Disponible",48,"","","","Naissance"],
 ]
 
 
@@ -155,6 +155,7 @@ def load_animals():
             "status":    str(r["status"]),
             "weight":    float(r["weight"]) if str(r["weight"]).strip() else 0.0,
             "notes":     str(r.get("notes","")),
+            "origin":    str(r.get("origin","")).strip() or "Achat",
             "photo":     photos[0] if photos else None,
             "photos":    photos,
         })
@@ -253,6 +254,7 @@ def save_all_animals(animals):
             a.get("notes",""),
             first_photo,
             json.dumps(photos, ensure_ascii=False),
+            a.get("origin","Achat"),
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")

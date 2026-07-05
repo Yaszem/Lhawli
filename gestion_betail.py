@@ -55,6 +55,8 @@ def svg(name, size=18, color="currentColor"):
         "recycle":   f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>',
         "paw":       f'<svg width="{s}" height="{s}" fill="{color}" stroke="none" viewBox="0 0 24 24"><circle cx="6" cy="9" r="2.3"/><circle cx="12" cy="6.5" r="2.3"/><circle cx="18" cy="9" r="2.3"/><path d="M12 12c-3.5 0-6.5 2.4-6.5 5.3 0 1.7 1.4 2.9 3 2.6 1.2-.2 2.1-.9 3.5-.9s2.3.7 3.5.9c1.6.3 3-.9 3-2.6C18.5 14.4 15.5 12 12 12z"/></svg>',
         "search":    f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+        "birth":     f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22c-4-3-7-6.5-7-10a7 7 0 0114 0c0 3.5-3 7-7 10z"/><circle cx="12" cy="11" r="2.5"/></svg>',
+        "cart":      f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>',
     }
     return icons.get(name, "")
 
@@ -115,6 +117,8 @@ st.markdown(f"""
   .badge-vendu  {{ background:#FFF3E0; color:#E65100; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-malade {{ background:#FFEBEE; color:#C62828; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-quaran {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
+  .badge-naissance {{ background:#F3E8FD; color:#7B1FA2; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
+  .badge-achat  {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -129,6 +133,7 @@ def sanitize_animals(animals):
         a["birth"]  = str(a.get("birth",  ""))
         a["status"] = str(a.get("status", ""))
         a["notes"]  = str(a.get("notes",  ""))
+        a["origin"] = str(a.get("origin","")) or "Achat"
     return animals
 
 def init_state():
@@ -205,6 +210,9 @@ def age_str(birth):
 def badge_cls(status):
     return {"Disponible":"badge-dispo","Vendu":"badge-vendu",
             "Malade":"badge-malade","En quarantaine":"badge-quaran"}.get(status,"badge-dispo")
+
+def origin_badge_cls(origin):
+    return "badge-naissance" if origin=="Naissance" else "badge-achat"
 
 def go_to_catalogue():
     st.session_state.page = "Catalogue"
@@ -404,6 +412,9 @@ def page_animal_detail(animal_id):
         if is_editing:
             st.markdown(f"""<div style="font-weight:800;font-size:22px;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
                 {svg("edit",20,ACCENT_DARK)}<span>Modifier {a["earTag"]}</span></div>""", unsafe_allow_html=True)
+            origin = st.radio("Origine *", ["Achat","Naissance"],
+                               index=["Achat","Naissance"].index(a.get("origin","Achat")),
+                               horizontal=True, key=f"e_origin_{a['id']}")
             c1,c2 = st.columns(2)
             with c1:
                 atype = st.selectbox("Type *", ["Mouton","Vache"],
@@ -427,7 +438,8 @@ def page_animal_detail(animal_id):
                                           key=f"e_weight_{a['id']}")
             c7,c8 = st.columns(2)
             with c7:
-                buy_p = st.number_input("Prix d'achat (€)", value=float(a["buyPrice"]), min_value=0.0,
+                buy_p = st.number_input("Prix d'achat (€)" if origin=="Achat" else "Coût (optionnel, €)",
+                                         value=float(a["buyPrice"]), min_value=0.0,
                                          key=f"e_buy_{a['id']}")
             with c8:
                 sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0,
@@ -455,7 +467,7 @@ def page_animal_detail(animal_id):
                             "id": a["id"], "type": atype, "race": race, "sex": sex,
                             "birth": birth, "earTag": ear_tag, "buyPrice": buy_p,
                             "sellPrice": sell_p, "status": status, "weight": weight,
-                            "notes": notes,
+                            "notes": notes, "origin": origin,
                             "photos": saved_photos,
                             "photo":  saved_photos[0] if saved_photos else None,
                         }
@@ -479,7 +491,11 @@ def page_animal_detail(animal_id):
                 <div style="font-size:13px;color:#8A8A8A">{a["type"]} · {a["race"]}</div>
                 """, unsafe_allow_html=True)
             with hc2:
-                st.markdown(f'<div style="text-align:right;padding-top:6px;"><span class="{badge_cls(a["status"])}">{a["status"]}</span></div>', unsafe_allow_html=True)
+                origin_val = a.get("origin","Achat")
+                st.markdown(f"""<div style="text-align:right;padding-top:6px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+                  <span class="{badge_cls(a["status"])}">{a["status"]}</span>
+                  <span class="{origin_badge_cls(origin_val)}">{origin_val}</span>
+                </div>""", unsafe_allow_html=True)
             st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
             g1,g2,g3 = st.columns(3)
             for col, label, val in [
@@ -560,6 +576,9 @@ def show_edit_modal(animal_id):
     if not a:
         st.session_state.edit_modal_id = None
         return
+    origin = st.radio("Origine *", ["Achat","Naissance"],
+                       index=["Achat","Naissance"].index(a.get("origin","Achat")),
+                       horizontal=True, key=f"m_origin_{animal_id}")
     c1,c2 = st.columns(2)
     with c1: atype = st.selectbox("Type *", ["Mouton","Vache"], index=["Mouton","Vache"].index(a["type"]))
     with c2: sex   = st.selectbox("Sexe *", ["Mâle","Femelle"], index=["Mâle","Femelle"].index(a["sex"]))
@@ -574,7 +593,7 @@ def show_edit_modal(animal_id):
     with c5: ear_tag = st.text_input("N° de boucle *", value=a["earTag"])
     with c6: weight  = st.number_input("Poids (kg)", value=float(a["weight"]), min_value=0.0)
     c7,c8 = st.columns(2)
-    with c7: buy_p  = st.number_input("Prix d'achat (€)", value=float(a["buyPrice"]), min_value=0.0)
+    with c7: buy_p  = st.number_input("Prix d'achat (€)" if origin=="Achat" else "Coût (optionnel, €)", value=float(a["buyPrice"]), min_value=0.0)
     with c8: sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0)
     stats = ["Disponible","Vendu","Malade","En quarantaine"]
     status = st.selectbox("Statut", stats, index=stats.index(a["status"]))
@@ -600,7 +619,7 @@ def show_edit_modal(animal_id):
                     "id": a["id"], "type": atype, "race": race, "sex": sex,
                     "birth": birth, "earTag": ear_tag, "buyPrice": buy_p,
                     "sellPrice": sell_p, "status": status, "weight": weight,
-                    "notes": notes,
+                    "notes": notes, "origin": origin,
                     "photos": new_photos,
                     "photo":  new_photos[0] if new_photos else a.get("photo"),
                 }
@@ -837,7 +856,7 @@ def page_dashboard():
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     st.markdown("**Animaux récents**")
     rows=[{"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
-           "Sexe":a["sex"],"Naissance":a["birth"],"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in animals[:5]]
+           "Sexe":a["sex"],"Naissance":a["birth"],"Origine":a.get("origin","Achat"),"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in animals[:5]]
     st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
 # ══════════════════════════ CATALOGUE (AVEC NOUVEAU CARROUSEL) ══════
@@ -897,6 +916,9 @@ def page_catalogue():
      .cat-badge-vendu  {{ background:#FFF3E0; color:#E65100; }}
      .cat-badge-malade {{ background:#FFEBEE; color:#C62828; }}
      .cat-badge-quaran {{ background:#E3F2FD; color:#1565C0; }}
+     .cat-badge-origin {{ position:absolute; top:10px; right:10px; font-size:9px; font-weight:700;
+         letter-spacing:.1em; text-transform:uppercase; padding:3px 8px; border-radius:2px;
+         background:rgba(255,255,255,.9); color:#1A1A1A; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -941,6 +963,7 @@ def page_catalogue():
                 "En quarantaine":("cat-badge-quaran", "QUARANTAINE"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
+            origin_val = a.get("origin","Achat")
 
             with col:
                 idx_key = f"cat_photo_idx_{a['id']}"
@@ -963,6 +986,7 @@ def page_catalogue():
                 <div class="cat-card">
                   <div class="cat-card-img-wrap">
                     <span class="cat-badge {badge_cls_name}">{badge_label}</span>
+                    <span class="cat-badge-origin">{origin_val.upper()}</span>
                     {img_html}
                   </div>
                 </div>
@@ -1052,7 +1076,7 @@ def page_animals():
     if not filtered: st.warning("Aucun animal trouvé.")
     else:
         rows=[{"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],"Sexe":a["sex"],
-               "Naissance":a["birth"],"Poids (kg)":a["weight"],
+               "Naissance":a["birth"],"Origine":a.get("origin","Achat"),"Poids (kg)":a["weight"],
                "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in filtered]
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
         if not is_obs:
@@ -1255,6 +1279,11 @@ def animal_form():
         padding: 16px 18px;
         margin-bottom: 12px;
     }}
+    .origin-choice {{
+        display: flex;
+        gap: 12px;
+        margin-bottom: 8px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1325,6 +1354,23 @@ def animal_form():
     # ─── COLONNE DROITE : Formulaire ───
     with col_form:
 
+        # Groupe Origine (Naissance ou Achat)
+        st.markdown('<div class="add-section-label">Origine de l\'animal</div>', unsafe_allow_html=True)
+        default_origin = ini.get("origin","Achat") if ini else "Achat"
+        origin = st.radio(
+            "Comment cet animal est-il arrivé dans le troupeau ? *",
+            ["Achat","Naissance"],
+            index=["Achat","Naissance"].index(default_origin),
+            horizontal=True,
+            key="af_origin",
+        )
+        origin_icon = svg("cart",14,"#1565C0") if origin=="Achat" else svg("birth",14,"#7B1FA2")
+        origin_desc = "Animal acheté auprès d'un tiers." if origin=="Achat" else "Animal né directement dans l'exploitation."
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#8A8A8A;margin-bottom:12px;">
+          {origin_icon}<span>{origin_desc}</span>
+        </div>""", unsafe_allow_html=True)
+
         # Groupe Identification
         st.markdown('<div class="add-section-label">Identification</div>', unsafe_allow_html=True)
         with st.container():
@@ -1359,7 +1405,8 @@ def animal_form():
         st.markdown('<div class="add-section-label">Prix</div>', unsafe_allow_html=True)
         p1,p2 = st.columns(2)
         with p1:
-            buy_p  = st.number_input("Prix d'achat (€)",
+            buy_label = "Prix d'achat (€)" if origin=="Achat" else "Coût (optionnel, €)"
+            buy_p  = st.number_input(buy_label,
                 value=float(ini["buyPrice"]) if ini else 0.0, min_value=0.0, key="af_buy")
         with p2:
             sell_p = st.number_input("Prix de vente (€)",
@@ -1408,6 +1455,7 @@ def animal_form():
                         "birth": birth.strip(), "earTag": ear_tag.strip(),
                         "buyPrice": buy_p, "sellPrice": sell_p,
                         "status": status, "weight": weight, "notes": notes,
+                        "origin": origin,
                         "photos": final_photos,
                         "photo":  final_photos[0] if final_photos else None,
                     }
@@ -1416,7 +1464,7 @@ def animal_form():
                         alert_box("Animal modifié !", "success")
                     else:
                         st.session_state.animals.append(na)
-                        alert_box("Animal ajouté !", "success")
+                        alert_box(f"Animal ajouté ({origin.lower()}) !", "success")
                     sync_animals()
                     photo_key = f"photos_edit_form_{eid or 'new'}"
                     if photo_key in st.session_state: del st.session_state[photo_key]
@@ -1487,6 +1535,7 @@ def page_sales():
         for a in vendus:
             p=a["sellPrice"]-a["buyPrice"]
             rows.append({"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
+                         "Origine":a.get("origin","Achat"),
                          "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),
                          "Bénéfice":("+" if p>=0 else "")+fmt(p)})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
@@ -1495,6 +1544,7 @@ def page_sales():
         for a in animals:
             p=a["sellPrice"]-a["buyPrice"]
             rows2.append({"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
+                          "Origine":a.get("origin","Achat"),
                           "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),
                           "Bénéfice":("+" if p>=0 else "")+fmt(p),"Statut":a["status"]})
         st.dataframe(pd.DataFrame(rows2),use_container_width=True,hide_index=True)
@@ -1517,6 +1567,22 @@ def page_stats():
                 plot_bgcolor="#fff",paper_bgcolor="#fff",
                 yaxis=dict(showgrid=False),xaxis=dict(showgrid=False))
             st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":False})
+    st.markdown("**Origine du troupeau**")
+    n_naissance = sum(1 for a in animals if a.get("origin","Achat")=="Naissance")
+    n_achat     = sum(1 for a in animals if a.get("origin","Achat")=="Achat")
+    oc1, oc2 = st.columns(2)
+    with oc1:
+        fig3 = go.Figure(go.Pie(labels=["Naissance","Achat"], values=[n_naissance,n_achat], hole=0.6,
+                                marker_colors=["#7B1FA2","#1565C0"], textinfo="value"))
+        fig3.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=180, showlegend=True,
+            legend=dict(orientation="v",x=1,y=0.5,font=dict(size=11)))
+        st.plotly_chart(fig3,use_container_width=True,config={"displayModeBar":False})
+    with oc2:
+        st.markdown(f"""
+        <div style="display:flex;flex-direction:column;gap:10px;padding-top:16px;">
+          <div style="display:flex;align-items:center;gap:8px;">{svg("birth",16,"#7B1FA2")}<span style="font-size:13px;">Nés dans l'exploitation : <b>{n_naissance}</b></span></div>
+          <div style="display:flex;align-items:center;gap:8px;">{svg("cart",16,"#1565C0")}<span style="font-size:13px;">Achetés : <b>{n_achat}</b></span></div>
+        </div>""", unsafe_allow_html=True)
     st.markdown("**Distribution par race**")
     rc={}
     for a in animals: rc[a["race"]]=rc.get(a["race"],0)+1
