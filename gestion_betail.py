@@ -438,9 +438,11 @@ def page_animal_detail(animal_id):
                                           key=f"e_weight_{a['id']}")
             c7,c8 = st.columns(2)
             with c7:
-                buy_p = st.number_input("Prix d'achat (€)" if origin=="Achat" else "Coût (optionnel, €)",
-                                         value=float(a["buyPrice"]), min_value=0.0,
-                                         key=f"e_buy_{a['id']}")
+                if origin == "Achat":
+                    buy_p = st.number_input("Prix d'achat (€)", value=float(a["buyPrice"]), min_value=0.0, key=f"e_buy_{a['id']}")
+                else:
+                    st.markdown("_Né dans l'exploitation_")
+                    buy_p = 0.0
             with c8:
                 sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0,
                                           key=f"e_sell_{a['id']}")
@@ -593,8 +595,14 @@ def show_edit_modal(animal_id):
     with c5: ear_tag = st.text_input("N° de boucle *", value=a["earTag"])
     with c6: weight  = st.number_input("Poids (kg)", value=float(a["weight"]), min_value=0.0)
     c7,c8 = st.columns(2)
-    with c7: buy_p  = st.number_input("Prix d'achat (€)" if origin=="Achat" else "Coût (optionnel, €)", value=float(a["buyPrice"]), min_value=0.0)
-    with c8: sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0)
+    with c7:
+        if origin == "Achat":
+            buy_p = st.number_input("Prix d'achat (€)", value=float(a["buyPrice"]), min_value=0.0)
+        else:
+            st.markdown("_Né dans l'exploitation_")
+            buy_p = 0.0
+    with c8:
+        sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0)
     stats = ["Disponible","Vendu","Malade","En quarantaine"]
     status = st.selectbox("Statut", stats, index=stats.index(a["status"]))
     notes  = st.text_input("Notes", value=a.get("notes",""), placeholder="ex: bonne laitière…")
@@ -1405,9 +1413,11 @@ def animal_form():
         st.markdown('<div class="add-section-label">Prix</div>', unsafe_allow_html=True)
         p1,p2 = st.columns(2)
         with p1:
-            buy_label = "Prix d'achat (€)" if origin=="Achat" else "Coût (optionnel, €)"
-            buy_p  = st.number_input(buy_label,
-                value=float(ini["buyPrice"]) if ini else 0.0, min_value=0.0, key="af_buy")
+            if origin == "Achat":
+                buy_p = st.number_input("Prix d'achat (€)", min_value=0.0, key="af_buy")
+            else:
+                st.markdown("_Né dans l'exploitation_")
+                buy_p = 0.0
         with p2:
             sell_p = st.number_input("Prix de vente (€)",
                 value=float(ini["sellPrice"]) if ini else 0.0, min_value=0.0, key="af_sell")
