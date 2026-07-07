@@ -49,10 +49,11 @@ def verify_password(password: str, stored: str) -> bool:
 
 # ── En-têtes ─────────────────────────────────────────────────────────
 HEADERS_ANIMAUX = ["id","type","race","sex","birth","earTag","buyPrice",
-                   "sellPrice","status","weight","notes","photo","photos","origin"]
+                   "sellPrice","status","weight","notes","photo","photos","origin","date_achat"]
 HEADERS_RACES   = ["type","race"]
 HEADERS_USERS   = ["email","password","name","role","statut","date_inscription"]
 #                                                    ^^^^^^^ En attente / Actif / Refusé
+HEADERS_STOCK   = ["id","date_achat","feedType","quantity","unit","quantityKg","buyPrice","notes"]
 
 DEFAULT_USERS = [
     ["admin@elevio.fr",    hash_password("admin123"),   "Ahmed Benali",    "Administrateur", "Actif", "2024-01-01"],
@@ -124,7 +125,8 @@ def init_database():
     ws_animaux = _ensure_worksheet(sh, "Animaux", HEADERS_ANIMAUX)  # pas de default_rows ici
     ws_races   = _ensure_worksheet(sh, "Races",   HEADERS_RACES)
     ws_users   = _ensure_worksheet(sh, "Users",   HEADERS_USERS)
-    return ws_animaux, ws_races, ws_users
+    ws_stock   = _ensure_worksheet(sh, "Stock",   HEADERS_STOCK)
+    return ws_animaux, ws_races, ws_users, ws_stock
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -156,6 +158,7 @@ def load_animals():
             "weight":    float(r["weight"]) if str(r["weight"]).strip() else 0.0,
             "notes":     str(r.get("notes","")),
             "origin":    str(r.get("origin","")).strip() or "Achat",
+            "date_achat": str(r.get("date_achat","")).strip(),
             "photo":     photos[0] if photos else None,
             "photos":    photos,
         })
@@ -233,6 +236,27 @@ def load_users():
     return users
 
 
+def load_stock():
+    sh = get_spreadsheet()
+    ws = sh.worksheet("Stock")
+    records = ws.get_all_records()
+    stock = []
+    for r in records:
+        if not r.get("feedType"):
+            continue
+        stock.append({
+            "id":          int(r["id"]) if str(r.get("id","")).strip() else 0,
+            "date_achat":  str(r.get("date_achat","")),
+            "feedType":    str(r.get("feedType","")),
+            "quantity":    float(r["quantity"])   if str(r.get("quantity","")).strip()   else 0.0,
+            "unit":        str(r.get("unit","kg")) or "kg",
+            "quantityKg":  float(r["quantityKg"]) if str(r.get("quantityKg","")).strip() else 0.0,
+            "buyPrice":    float(r["buyPrice"])   if str(r.get("buyPrice","")).strip()   else 0.0,
+            "notes":       str(r.get("notes","")),
+        })
+    return stock
+
+
 # ══════════════════════════════════════════════════════════════════════
 # ÉCRITURE
 # ══════════════════════════════════════════════════════════════════════
@@ -255,6 +279,7 @@ def save_all_animals(animals):
             first_photo,
             json.dumps(photos, ensure_ascii=False),
             a.get("origin","Achat"),
+            a.get("date_achat",""),
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")
@@ -308,3 +333,29 @@ def add_race(race_type, race_name):
     sh = get_spreadsheet()
     ws = sh.worksheet("Races")
     ws.append_row([race_type, race_name], value_input_option="USER_ENTERED")
+
+
+def save_all_stock(stock):
+    """Réécrit entièrement l'onglet Stock (alimentation du bétail)."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("Stock")
+    rows = [HEADERS_STOCK]
+    for s in stock:
+        rows.append([
+            s["id"], s.get("date_achat",""), s["feedType"], s["quantity"],
+            s.get("unit","kg"), s.get("quantityKg", s["quantity"]),
+            s["buyPrice"], s.get("notes",""),
+        ])
+    ws.clear()
+    ws.update(rows, value_input_option="USER_ENTERED")
+
+
+def add_stock_entry(entry):
+    """Ajoute une entrée de stock d'alimentation (achat de paille, foin, céréales, etc.)."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("Stock")
+    ws.append_row([
+        entry["id"], entry.get("date_achat",""), entry["feedType"], entry["quantity"],
+        entry.get("unit","kg"), entry.get("quantityKg", entry["quantity"]),
+        entry["buyPrice"], entry.get("notes",""),
+    ], value_input_option="USER_ENTERED")

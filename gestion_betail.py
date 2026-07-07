@@ -15,6 +15,20 @@ ACCENT_DARK  = "#0F3D30"
 ACCENT_LIGHT = "#E8F4F0"
 RED          = "#E53935"
 GREEN        = "#2E7D5B"
+STOCK_ACCENT = "#B8860B"
+
+FEED_TYPES = [
+    "Paille",
+    "Foin",
+    "Céréales",
+    "Mélange",
+    "Graines",
+    "Orge (Ch'ir)",
+    "Maïs grain et avoine (Khartal)",
+    "Pulpe de betterave séchée",
+    "Son de blé (N'khala)",
+]
+UNIT_TO_KG = {"kg": 1, "sachet": 1, "balle": 1}
 
 # ── SVG helper ──────────────────────────────────────────────────────────
 def svg(name, size=18, color="currentColor"):
@@ -134,6 +148,7 @@ def sanitize_animals(animals):
         a["status"] = str(a.get("status", ""))
         a["notes"]  = str(a.get("notes",  ""))
         a["origin"] = str(a.get("origin","")) or "Achat"
+        a["date_achat"] = str(a.get("date_achat",""))
     return animals
 
 def init_state():
@@ -144,6 +159,7 @@ def init_state():
         "edit_modal_id":None,"confirm_delete_id":None,
         "editing_fiche_id":None,
         "db_loaded": False,
+        "show_stock_form": False, "confirm_delete_stock_id": None,
     }
     for k,v in d.items():
         if k not in st.session_state: st.session_state[k]=v
@@ -156,6 +172,7 @@ def init_state():
             st.session_state.races_mouton = races_m
             st.session_state.races_vache  = races_v
             st.session_state.users = db.load_users()
+            st.session_state.stock = db.load_stock()
             st.session_state.db_loaded = True
         except Exception as e:
             st.error(f"Impossible de se connecter à Google Sheets : {e}")
@@ -165,7 +182,7 @@ def init_state():
 init_state()
 USERS = st.session_state.users
 
-VALID_PAGES = ["Dashboard","Animaux","Catalogue","Ventes","Statistiques","Utilisateurs","Paramètres","FicheAnimal"]
+VALID_PAGES = ["Dashboard","Animaux","Catalogue","Ventes","Stock","Statistiques","Utilisateurs","Paramètres","FicheAnimal"]
 
 def restore_session_from_url():
     qp = st.query_params
@@ -198,7 +215,17 @@ def sync_animals():
     except Exception as e:
         st.error(f"Erreur de synchronisation Google Sheets : {e}")
 
-def fmt(n): return f"{int(n):,} €".replace(",", " ")
+def sync_stock():
+    """Sauvegarde le stock d'alimentation dans Google Sheets."""
+    try:
+        db.save_all_stock(st.session_state.stock)
+    except Exception as e:
+        st.error(f"Erreur de synchronisation Google Sheets (Stock) : {e}")
+
+def stock_to_kg(qty, unit):
+    return float(qty) * UNIT_TO_KG.get(unit, 1)
+
+def fmt(n): return f"{int(n):,} MAD".replace(",", " ")
 def age_str(birth):
     try:
         from datetime import date
@@ -243,16 +270,7 @@ def generate_carousel_html(photos, card_id, status, height=320):
         return f"""
         <div style="position:relative; width:100%; height:{height}px; background:#F5F5F5; border-radius:2px; overflow:hidden;">
             <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#BDBDBD" stroke-width="1.8">
-                    <ellipse cx="12" cy="10" rx="7" ry="6"/>
-                    <circle cx="7" cy="7" r="2.5"/>
-                    <circle cx="17" cy="7" r="2.5"/>
-                    <circle cx="12" cy="5" r="2.5"/>
-                    <line x1="9" y1="16" x2="8" y2="21"/>
-                    <line x1="11" y1="16" x2="11" y2="21"/>
-                    <line x1="13" y1="16" x2="13" y2="21"/>
-                    <line x1="15" y1="16" x2="16" y2="21"/>
-                </svg>
+                <span style="color:#BDBDBD;font-size:12px;letter-spacing:.04em;">Aucune image</span>
             </div>
             <div style="position:absolute; top:10px; left:10px; font-size:9px; font-weight:700;
                         letter-spacing:.1em; text-transform:uppercase; padding:3px 8px;
@@ -405,7 +423,7 @@ def page_animal_detail(animal_id):
             st.markdown(f"""
             <div style="width:100%;height:420px;border-radius:16px;background:{ACCENT_LIGHT};
                         display:flex;align-items:center;justify-content:center;margin-bottom:8px;">
-              {svg("sheep" if is_mouton else "cow", 140, ACCENT)}
+              <span style="color:#8A8A8A;font-size:14px;letter-spacing:.04em;">Aucune image</span>
             </div>""", unsafe_allow_html=True)
 
     with info_col:
@@ -436,15 +454,15 @@ def page_animal_detail(animal_id):
             with c6:
                 weight = st.number_input("Poids (kg)", value=float(a["weight"]), min_value=0.0,
                                           key=f"e_weight_{a['id']}")
+            date_achat = st.text_input("Date d'achat", value=a.get("date_achat",""),
+                                        placeholder="YYYY-MM-DD", key=f"e_date_achat_{a['id']}")
             c7,c8 = st.columns(2)
             with c7:
-                if origin == "Achat":
-                    buy_p = st.number_input("Prix d'achat (€)", value=float(a["buyPrice"]), min_value=0.0, key=f"e_buy_{a['id']}")
-                else:
-                    st.markdown("_Né dans l'exploitation_")
-                    buy_p = 0.0
+                buy_p = st.number_input("Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)",
+                                         value=float(a["buyPrice"]), min_value=0.0,
+                                         key=f"e_buy_{a['id']}")
             with c8:
-                sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0,
+                sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0,
                                           key=f"e_sell_{a['id']}")
             stats  = ["Disponible","Vendu","Malade","En quarantaine"]
             status = st.selectbox("Statut", stats, index=stats.index(a["status"]), key=f"e_status_{a['id']}")
@@ -469,7 +487,7 @@ def page_animal_detail(animal_id):
                             "id": a["id"], "type": atype, "race": race, "sex": sex,
                             "birth": birth, "earTag": ear_tag, "buyPrice": buy_p,
                             "sellPrice": sell_p, "status": status, "weight": weight,
-                            "notes": notes, "origin": origin,
+                            "notes": notes, "origin": origin, "date_achat": date_achat.strip(),
                             "photos": saved_photos,
                             "photo":  saved_photos[0] if saved_photos else None,
                         }
@@ -512,11 +530,12 @@ def page_animal_detail(animal_id):
                       <div style="font-weight:700;font-size:14px">{val}</div>
                     </div>""", unsafe_allow_html=True)
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            g4,g5,g6 = st.columns(3)
+            g4,g5,g6,g7 = st.columns(4)
             for col, label, val, color in [
                 (g4,"Prix achat",  fmt(a["buyPrice"]),   "#1A1A1A"),
                 (g5,"Prix vente",  fmt(a["sellPrice"]),  "#1A1A1A"),
                 (g6,"Bénéfice",    ("+" if profit>=0 else "")+fmt(profit), profit_c),
+                (g7,"Date d'achat", a.get("date_achat","") or "—", "#1A1A1A"),
             ]:
                 with col:
                     st.markdown(f"""
@@ -594,15 +613,10 @@ def show_edit_modal(animal_id):
     c5,c6 = st.columns(2)
     with c5: ear_tag = st.text_input("N° de boucle *", value=a["earTag"])
     with c6: weight  = st.number_input("Poids (kg)", value=float(a["weight"]), min_value=0.0)
+    date_achat = st.text_input("Date d'achat", value=a.get("date_achat",""), placeholder="YYYY-MM-DD")
     c7,c8 = st.columns(2)
-    with c7:
-        if origin == "Achat":
-            buy_p = st.number_input("Prix d'achat (€)", value=float(a["buyPrice"]), min_value=0.0)
-        else:
-            st.markdown("_Né dans l'exploitation_")
-            buy_p = 0.0
-    with c8:
-        sell_p = st.number_input("Prix de vente (€)", value=float(a["sellPrice"]), min_value=0.0)
+    with c7: buy_p  = st.number_input("Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)", value=float(a["buyPrice"]), min_value=0.0)
+    with c8: sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0)
     stats = ["Disponible","Vendu","Malade","En quarantaine"]
     status = st.selectbox("Statut", stats, index=stats.index(a["status"]))
     notes  = st.text_input("Notes", value=a.get("notes",""), placeholder="ex: bonne laitière…")
@@ -627,7 +641,7 @@ def show_edit_modal(animal_id):
                     "id": a["id"], "type": atype, "race": race, "sex": sex,
                     "birth": birth, "earTag": ear_tag, "buyPrice": buy_p,
                     "sellPrice": sell_p, "status": status, "weight": weight,
-                    "notes": notes, "origin": origin,
+                    "notes": notes, "origin": origin, "date_achat": date_achat.strip(),
                     "photos": new_photos,
                     "photo":  new_photos[0] if new_photos else a.get("photo"),
                 }
@@ -755,6 +769,7 @@ def sidebar_nav():
             ("animals",   "Animaux",      "Animaux"),
             ("catalogue", "Catalogue",    "Catalogue"),
             ("sales",     "Ventes",       "Ventes"),
+            ("cart",      "Stock",        "Stock"),
             ("stats",     "Statistiques", "Statistiques"),
             ("users",     "Utilisateurs", "Utilisateurs"),
             ("settings",  "Paramètres",   "Paramètres"),
@@ -804,6 +819,7 @@ def sidebar_nav():
                 races_m, races_v = db.load_races()
                 st.session_state.races_mouton = races_m
                 st.session_state.races_vache  = races_v
+                st.session_state.stock = db.load_stock()
                 alert_box("Données rechargées !", "success")
                 st.rerun()
 
@@ -864,7 +880,7 @@ def page_dashboard():
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     st.markdown("**Animaux récents**")
     rows=[{"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
-           "Sexe":a["sex"],"Naissance":a["birth"],"Origine":a.get("origin","Achat"),"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in animals[:5]]
+           "Sexe":a["sex"],"Naissance":a["birth"],"Date d'achat":a.get("date_achat",""),"Origine":a.get("origin","Achat"),"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in animals[:5]]
     st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
 # ══════════════════════════ CATALOGUE (AVEC NOUVEAU CARROUSEL) ══════
@@ -987,7 +1003,7 @@ def page_catalogue():
                     img_html = f"""
                     <div style="width:100%;height:100%;display:flex;align-items:center;
                                 justify-content:center;background:#F0EDE8;">
-                        {svg("sheep" if is_mouton else "cow", 72, "#BDBDBD")}
+                        <span style="color:#BDBDBD;font-size:12px;letter-spacing:.04em;">Aucune image</span>
                     </div>"""
 
                 st.markdown(f"""
@@ -1084,7 +1100,7 @@ def page_animals():
     if not filtered: st.warning("Aucun animal trouvé.")
     else:
         rows=[{"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],"Sexe":a["sex"],
-               "Naissance":a["birth"],"Origine":a.get("origin","Achat"),"Poids (kg)":a["weight"],
+               "Naissance":a["birth"],"Date d'achat":a.get("date_achat",""),"Origine":a.get("origin","Achat"),"Poids (kg)":a["weight"],
                "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in filtered]
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
         if not is_obs:
@@ -1409,17 +1425,18 @@ def animal_form():
                 weight = st.number_input("Poids (kg)",
                     value=float(ini["weight"]) if ini else 0.0, min_value=0.0, key="af_weight")
 
+            date_achat = st.text_input("Date d'achat",
+                value=ini.get("date_achat","") if ini else "", placeholder="YYYY-MM-DD", key="af_date_achat")
+
         # Groupe Prix
         st.markdown('<div class="add-section-label">Prix</div>', unsafe_allow_html=True)
         p1,p2 = st.columns(2)
         with p1:
-            if origin == "Achat":
-                buy_p = st.number_input("Prix d'achat (€)", min_value=0.0, key="af_buy")
-            else:
-                st.markdown("_Né dans l'exploitation_")
-                buy_p = 0.0
+            buy_label = "Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)"
+            buy_p  = st.number_input(buy_label,
+                value=float(ini["buyPrice"]) if ini else 0.0, min_value=0.0, key="af_buy")
         with p2:
-            sell_p = st.number_input("Prix de vente (€)",
+            sell_p = st.number_input("Prix de vente (MAD)",
                 value=float(ini["sellPrice"]) if ini else 0.0, min_value=0.0, key="af_sell")
 
         # Bénéfice estimé live
@@ -1429,7 +1446,7 @@ def animal_form():
         <div style="background:#F8F8F8;border-radius:10px;padding:10px 14px;
                     display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:11px;color:#8A8A8A;text-transform:uppercase;letter-spacing:.06em;">Bénéfice estimé</span>
-          <span style="font-weight:700;font-size:15px;color:{profit_c}">{"+" if profit>=0 else ""}{int(profit):,} €</span>
+          <span style="font-weight:700;font-size:15px;color:{profit_c}">{"+" if profit>=0 else ""}{int(profit):,} MAD</span>
         </div>
         """.replace(",", " "), unsafe_allow_html=True)
 
@@ -1465,7 +1482,7 @@ def animal_form():
                         "birth": birth.strip(), "earTag": ear_tag.strip(),
                         "buyPrice": buy_p, "sellPrice": sell_p,
                         "status": status, "weight": weight, "notes": notes,
-                        "origin": origin,
+                        "origin": origin, "date_achat": date_achat.strip(),
                         "photos": final_photos,
                         "photo":  final_photos[0] if final_photos else None,
                     }
@@ -1510,7 +1527,7 @@ def page_sales():
             vc1,vc2,vc3=st.columns([1.5,1.5,1])
             with vc1: v_tag=st.selectbox("N° de boucle",tags,index=idx,key="vente_tag")
             asel=next((a for a in dispos if a["earTag"]==v_tag),None)
-            with vc2: v_prix=st.number_input("Prix de vente (€)",value=float(asel["sellPrice"]) if asel else 0.0,min_value=0.0,key="vente_prix")
+            with vc2: v_prix=st.number_input("Prix de vente (MAD)",value=float(asel["sellPrice"]) if asel else 0.0,min_value=0.0,key="vente_prix")
             if asel:
                 profit=v_prix-asel["buyPrice"]
                 st.markdown(f"""
@@ -1545,7 +1562,7 @@ def page_sales():
         for a in vendus:
             p=a["sellPrice"]-a["buyPrice"]
             rows.append({"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
-                         "Origine":a.get("origin","Achat"),
+                         "Origine":a.get("origin","Achat"),"Date d'achat":a.get("date_achat",""),
                          "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),
                          "Bénéfice":("+" if p>=0 else "")+fmt(p)})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
@@ -1554,10 +1571,128 @@ def page_sales():
         for a in animals:
             p=a["sellPrice"]-a["buyPrice"]
             rows2.append({"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
-                          "Origine":a.get("origin","Achat"),
+                          "Origine":a.get("origin","Achat"),"Date d'achat":a.get("date_achat",""),
                           "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),
                           "Bénéfice":("+" if p>=0 else "")+fmt(p),"Statut":a["status"]})
         st.dataframe(pd.DataFrame(rows2),use_container_width=True,hide_index=True)
+
+# ══════════════════════════ STOCK D'ALIMENTATION ═════════════════════
+def page_stock():
+    auth = st.session_state.auth
+    is_obs = auth["role"] == "Observateur"
+    stock = st.session_state.stock
+
+    st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">{svg("cart",22,STOCK_ACCENT)}<span style="font-size:22px;font-weight:700">Stock d\'alimentation</span></div>', unsafe_allow_html=True)
+
+    total_kg   = sum(s["quantityKg"] for s in stock)
+    total_cost = sum(s["buyPrice"]   for s in stock)
+    n_types    = len({s["feedType"] for s in stock})
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Stock total", f"{total_kg:,.0f} kg".replace(",", " "))
+    c2.metric("Valeur du stock", fmt(total_cost))
+    c3.metric("Types d'aliments", n_types)
+    with c4:
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if not is_obs:
+            if st.button("Nouvel achat", use_container_width=True, key="btn_new_stock"):
+                st.session_state.show_stock_form = not st.session_state.show_stock_form
+                st.rerun()
+
+    if st.session_state.show_stock_form and not is_obs:
+        st.markdown(f"""<div style="background:{STOCK_ACCENT};border-radius:14px 14px 0 0;padding:14px 20px;
+                    color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px;">
+                    {svg("cart",18,"#fff")}<span>Enregistrer un achat d'alimentation</span></div>""",
+                    unsafe_allow_html=True)
+        with st.form("stock_form", clear_on_submit=True):
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                f_date = st.date_input("Date d'achat")
+                f_type = st.selectbox("Type d'aliment", FEED_TYPES)
+            with fc2:
+                f_qty  = st.number_input("Quantité", min_value=0.0, step=1.0, value=0.0)
+                f_unit = st.selectbox("Unité", list(UNIT_TO_KG.keys()))
+            fc3, fc4 = st.columns(2)
+            with fc3:
+                f_price = st.number_input("Prix d'achat (MAD)", min_value=0.0, step=1.0, value=0.0)
+            with fc4:
+                f_notes = st.text_input("Notes (fournisseur, remarque...)", value="")
+
+            submitted = st.form_submit_button("Enregistrer l'achat", use_container_width=True)
+            if submitted:
+                if f_qty <= 0:
+                    alert_box("Indique une quantité valide.", "error")
+                else:
+                    new_id = (max([s["id"] for s in stock], default=0) + 1)
+                    entry = {
+                        "id":         new_id,
+                        "date_achat": str(f_date),
+                        "feedType":   f_type,
+                        "quantity":   f_qty,
+                        "unit":       f_unit,
+                        "quantityKg": stock_to_kg(f_qty, f_unit),
+                        "buyPrice":   f_price,
+                        "notes":      f_notes,
+                    }
+                    st.session_state.stock.append(entry)
+                    sync_stock()
+                    alert_box(f"Achat enregistré : {f_qty:g} {f_unit} de {f_type}", "success")
+                    st.session_state.show_stock_form = False
+                    st.rerun()
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+    st.markdown("**Historique des achats**")
+    if not stock:
+        st.info("Aucun achat d'alimentation enregistré.")
+        return
+
+    filt_c1, filt_c2 = st.columns([2, 1])
+    with filt_c1:
+        filter_type = st.selectbox("Filtrer par type", ["Tous"] + FEED_TYPES, key="stock_filter_type")
+    with filt_c2:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+
+    stock_sorted = sorted(stock, key=lambda s: s.get("date_achat",""), reverse=True)
+    if filter_type != "Tous":
+        stock_sorted = [s for s in stock_sorted if s["feedType"] == filter_type]
+
+    rows = [{
+        "Date d'achat": s["date_achat"],
+        "Type": s["feedType"],
+        "Quantité": f'{s["quantity"]:g} {s["unit"]}',
+        "Équivalent kg": f'{s["quantityKg"]:,.0f} kg'.replace(",", " "),
+        "Prix d'achat": fmt(s["buyPrice"]),
+        "Notes": s.get("notes",""),
+    } for s in stock_sorted]
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.markdown("**Répartition du stock par type d'aliment**")
+    by_type = {}
+    for s in stock:
+        by_type[s["feedType"]] = by_type.get(s["feedType"], 0) + s["quantityKg"]
+    if by_type:
+        fig = go.Figure(go.Bar(
+            x=list(by_type.values()), y=list(by_type.keys()),
+            orientation="h", marker_color=STOCK_ACCENT))
+        fig.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=max(180, 36*len(by_type)),
+            plot_bgcolor="#fff", paper_bgcolor="#fff",
+            xaxis=dict(showgrid=False, title="kg"), yaxis=dict(showgrid=False))
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    if not is_obs:
+        with st.expander("Supprimer un achat"):
+            for s in stock_sorted:
+                dc1, dc2, dc3 = st.columns([3, 1, 1])
+                with dc1:
+                    st.markdown(f"{s['date_achat']} — **{s['feedType']}** — {s['quantity']:g} {s['unit']} — {fmt(s['buyPrice'])}")
+                with dc2:
+                    st.markdown(f"<div style='height:0'></div>", unsafe_allow_html=True)
+                with dc3:
+                    if st.button("Supprimer", key=f"del_stock_{s['id']}", use_container_width=True):
+                        st.session_state.stock = [x for x in st.session_state.stock if x["id"] != s["id"]]
+                        sync_stock()
+                        alert_box("Achat supprimé.", "success")
+                        st.rerun()
 
 # ══════════════════════════ STATISTIQUES ═════════════════════════════
 def page_stats():
@@ -1838,6 +1973,7 @@ def main():
     elif page=="Animaux":      page_animals()
     elif page=="Catalogue":    page_catalogue()
     elif page=="Ventes":       page_sales()
+    elif page=="Stock":        page_stock()
     elif page=="Statistiques": page_stats()
     elif page=="Utilisateurs": page_users()
     elif page=="Paramètres":   page_settings()
