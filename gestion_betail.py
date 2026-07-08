@@ -6,6 +6,7 @@ import storage as supa_storage
 import hashlib
 import streamlit.components.v1 as components
 import database as db
+from datetime import datetime
 
 st.set_page_config(page_title="Lhawli – Gestion de bétail", page_icon="🐑",
                    layout="wide", initial_sidebar_state="expanded")
@@ -159,7 +160,7 @@ def init_state():
         "edit_modal_id":None,"confirm_delete_id":None,
         "editing_fiche_id":None,
         "db_loaded": False,
-        "show_stock_form": False, "confirm_delete_stock_id": None,
+        "show_stock_form": False, "confirm_delete_stock_id": None, "edit_stock_id": None,
     }
     for k,v in d.items():
         if k not in st.session_state: st.session_state[k]=v
@@ -1597,48 +1598,99 @@ def page_stock():
         if not is_obs:
             if st.button("Nouvel achat", use_container_width=True, key="btn_new_stock"):
                 st.session_state.show_stock_form = not st.session_state.show_stock_form
+                st.session_state.edit_stock_id = None
                 st.rerun()
 
-    if st.session_state.show_stock_form and not is_obs:
+    eid_stock = st.session_state.edit_stock_id
+    ini_stock = next((s for s in stock if s["id"]==eid_stock), None) if eid_stock else None
+    is_edit_stock = ini_stock is not None
+
+    if (st.session_state.show_stock_form or is_edit_stock) and not is_obs:
+        header_label = "Modifier l'achat" if is_edit_stock else "Enregistrer un achat d'alimentation"
         st.markdown(f"""<div style="background:{STOCK_ACCENT};border-radius:14px 14px 0 0;padding:14px 20px;
                     color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px;">
-                    {svg("cart",18,"#fff")}<span>Enregistrer un achat d'alimentation</span></div>""",
+                    {svg("cart",18,"#fff")}<span>{header_label}</span></div>""",
                     unsafe_allow_html=True)
-        with st.form("stock_form", clear_on_submit=True):
+
+        default_date = datetime.strptime(ini_stock["date_achat"], "%Y-%m-%d").date() \
+            if is_edit_stock and ini_stock.get("date_achat") else datetime.now().date()
+        default_type  = ini_stock["feedType"] if is_edit_stock else FEED_TYPES[0]
+        default_qty   = float(ini_stock["quantity"]) if is_edit_stock else 0.0
+        default_unit  = ini_stock.get("unit","kg") if is_edit_stock else list(UNIT_TO_KG.keys())[0]
+        default_price = float(ini_stock["buyPrice"]) if is_edit_stock else 0.0
+        default_notes = ini_stock.get("notes","") if is_edit_stock else ""
+
+        with st.form("stock_form", clear_on_submit=not is_edit_stock):
             fc1, fc2 = st.columns(2)
             with fc1:
-                f_date = st.date_input("Date d'achat")
-                f_type = st.selectbox("Type d'aliment", FEED_TYPES)
+                f_date = st.date_input("Date d'achat", value=default_date)
+                f_type = st.selectbox("Type d'aliment", FEED_TYPES,
+                                       index=FEED_TYPES.index(default_type) if default_type in FEED_TYPES else 0)
             with fc2:
-                f_qty  = st.number_input("Quantité", min_value=0.0, step=1.0, value=0.0)
-                f_unit = st.selectbox("Unité", list(UNIT_TO_KG.keys()))
+                f_qty  = st.number_input("Quantité", min_value=0.0, step=1.0, value=default_qty)
+                unit_keys = list(UNIT_TO_KG.keys())
+                f_unit = st.selectbox("Unité", unit_keys,
+                                       index=unit_keys.index(default_unit) if default_unit in unit_keys else 0)
             fc3, fc4 = st.columns(2)
             with fc3:
-                f_price = st.number_input("Prix d'achat (MAD)", min_value=0.0, step=1.0, value=0.0)
+                f_price = st.number_input("Prix d'achat (MAD)", min_value=0.0, step=1.0, value=default_price)
             with fc4:
-                f_notes = st.text_input("Notes (fournisseur, remarque...)", value="")
+                f_notes = st.text_input("Notes (fournisseur, remarque...)", value=default_notes)
 
-            submitted = st.form_submit_button("Enregistrer l'achat", use_container_width=True)
+            bc1, bc2 = st.columns([1,2]) if is_edit_stock else (None, None)
+            if is_edit_stock:
+                with bc1:
+                    cancel = st.form_submit_button("Annuler", use_container_width=True)
+                with bc2:
+                    submitted = st.form_submit_button("Enregistrer les modifications", use_container_width=True)
+            else:
+                cancel = False
+                submitted = st.form_submit_button("Enregistrer l'achat", use_container_width=True)
+
+            if cancel:
+                st.session_state.edit_stock_id = None
+                st.session_state.show_stock_form = False
+                st.rerun()
+
             if submitted:
                 if f_qty <= 0:
                     alert_box("Indique une quantité valide.", "error")
                 else:
-                    new_id = (max([s["id"] for s in stock], default=0) + 1)
-                    entry = {
-                        "id":         new_id,
-                        "date_achat": str(f_date),
-                        "feedType":   f_type,
-                        "quantity":   f_qty,
-                        "unit":       f_unit,
-                        "quantityKg": stock_to_kg(f_qty, f_unit),
-                        "buyPrice":   f_price,
-                        "notes":      f_notes,
-                    }
-                    st.session_state.stock.append(entry)
-                    sync_stock()
-                    alert_box(f"Achat enregistré : {f_qty:g} {f_unit} de {f_type}", "success")
-                    st.session_state.show_stock_form = False
-                    st.rerun()
+                    if is_edit_stock:
+                        updated = {
+                            "id":         ini_stock["id"],
+                            "date_achat": str(f_date),
+                            "feedType":   f_type,
+                            "quantity":   f_qty,
+                            "unit":       f_unit,
+                            "quantityKg": stock_to_kg(f_qty, f_unit),
+                            "buyPrice":   f_price,
+                            "notes":      f_notes,
+                        }
+                        st.session_state.stock = [updated if x["id"]==ini_stock["id"] else x
+                                                   for x in st.session_state.stock]
+                        sync_stock()
+                        alert_box("Achat modifié !", "success")
+                        st.session_state.edit_stock_id = None
+                        st.session_state.show_stock_form = False
+                        st.rerun()
+                    else:
+                        new_id = (max([s["id"] for s in stock], default=0) + 1)
+                        entry = {
+                            "id":         new_id,
+                            "date_achat": str(f_date),
+                            "feedType":   f_type,
+                            "quantity":   f_qty,
+                            "unit":       f_unit,
+                            "quantityKg": stock_to_kg(f_qty, f_unit),
+                            "buyPrice":   f_price,
+                            "notes":      f_notes,
+                        }
+                        st.session_state.stock.append(entry)
+                        sync_stock()
+                        alert_box(f"Achat enregistré : {f_qty:g} {f_unit} de {f_type}", "success")
+                        st.session_state.show_stock_form = False
+                        st.rerun()
         st.markdown("<hr>", unsafe_allow_html=True)
 
     st.markdown("**Historique des achats**")
@@ -1656,15 +1708,68 @@ def page_stock():
     if filter_type != "Tous":
         stock_sorted = [s for s in stock_sorted if s["feedType"] == filter_type]
 
-    rows = [{
-        "Date d'achat": s["date_achat"],
-        "Type": s["feedType"],
-        "Quantité": f'{s["quantity"]:g} {s["unit"]}',
-        "Équivalent kg": f'{s["quantityKg"]:,.0f} kg'.replace(",", " "),
-        "Prix d'achat": fmt(s["buyPrice"]),
-        "Notes": s.get("notes",""),
-    } for s in stock_sorted]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    if is_obs:
+        rows = [{
+            "Date d'achat": s["date_achat"],
+            "Type": s["feedType"],
+            "Quantité": f'{s["quantity"]:g} {s["unit"]}',
+            "Équivalent kg": f'{s["quantityKg"]:,.0f} kg'.replace(",", " "),
+            "Prix d'achat": fmt(s["buyPrice"]),
+            "Notes": s.get("notes",""),
+        } for s in stock_sorted]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Modifie directement une cellule, puis clique sur *Enregistrer les modifications du tableau*.")
+        edit_rows = [{
+            "id":            s["id"],
+            "Date d'achat":  pd.to_datetime(s.get("date_achat",""), errors="coerce"),
+            "Type":          s["feedType"],
+            "Quantité":      float(s["quantity"]),
+            "Unité":         s.get("unit","kg"),
+            "Prix d'achat (MAD)": float(s["buyPrice"]),
+            "Notes":         s.get("notes",""),
+        } for s in stock_sorted]
+        edit_df = pd.DataFrame(edit_rows).set_index("id")
+
+        edited_df = st.data_editor(
+            edit_df,
+            use_container_width=True,
+            num_rows="fixed",
+            key="stock_table_editor",
+            column_config={
+                "Date d'achat": st.column_config.DateColumn("Date d'achat", format="YYYY-MM-DD"),
+                "Type":  st.column_config.SelectboxColumn("Type", options=FEED_TYPES),
+                "Quantité": st.column_config.NumberColumn("Quantité", min_value=0.0, step=1.0),
+                "Unité": st.column_config.SelectboxColumn("Unité", options=list(UNIT_TO_KG.keys())),
+                "Prix d'achat (MAD)": st.column_config.NumberColumn("Prix d'achat (MAD)", min_value=0.0, step=1.0),
+                "Notes": st.column_config.TextColumn("Notes"),
+            },
+        )
+
+        if st.button("Enregistrer les modifications du tableau", key="save_stock_table"):
+            shown_ids = set(edited_df.index.tolist())
+            new_entries = []
+            for sid, row in edited_df.iterrows():
+                qty  = float(row["Quantité"])
+                unit = row["Unité"]
+                d = row["Date d'achat"]
+                date_str = d.strftime("%Y-%m-%d") if pd.notna(d) else ""
+                new_entries.append({
+                    "id":         int(sid),
+                    "date_achat": date_str,
+                    "feedType":   row["Type"],
+                    "quantity":   qty,
+                    "unit":       unit,
+                    "quantityKg": stock_to_kg(qty, unit),
+                    "buyPrice":   float(row["Prix d'achat (MAD)"]),
+                    "notes":      row.get("Notes","") or "",
+                })
+            untouched = [s for s in st.session_state.stock if s["id"] not in shown_ids]
+            st.session_state.stock = new_entries + untouched
+            sync_stock()
+            alert_box("Tableau mis à jour !", "success")
+            st.rerun()
+
 
     st.markdown("**Répartition du stock par type d'aliment**")
     by_type = {}
@@ -1680,13 +1785,16 @@ def page_stock():
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     if not is_obs:
-        with st.expander("Supprimer un achat"):
+        with st.expander("Modifier / Supprimer un achat"):
             for s in stock_sorted:
                 dc1, dc2, dc3 = st.columns([3, 1, 1])
                 with dc1:
                     st.markdown(f"{s['date_achat']} — **{s['feedType']}** — {s['quantity']:g} {s['unit']} — {fmt(s['buyPrice'])}")
                 with dc2:
-                    st.markdown(f"<div style='height:0'></div>", unsafe_allow_html=True)
+                    if st.button("Modifier", key=f"edit_stock_{s['id']}", use_container_width=True):
+                        st.session_state.edit_stock_id = s["id"]
+                        st.session_state.show_stock_form = True
+                        st.rerun()
                 with dc3:
                     if st.button("Supprimer", key=f"del_stock_{s['id']}", use_container_width=True):
                         st.session_state.stock = [x for x in st.session_state.stock if x["id"] != s["id"]]
