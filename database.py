@@ -54,6 +54,7 @@ HEADERS_RACES   = ["type","race"]
 HEADERS_USERS   = ["email","password","name","role","statut","date_inscription"]
 #                                                    ^^^^^^^ En attente / Actif / Refusé
 HEADERS_STOCK   = ["id","date_achat","feedType","quantity","unit","quantityKg","buyPrice","notes"]
+HEADERS_FEEDTYPES = ["feedType"]
 
 DEFAULT_USERS = [
     ["admin@elevio.fr",    hash_password("admin123"),   "Ahmed Benali",    "Administrateur", "Actif", "2024-01-01"],
@@ -66,6 +67,12 @@ DEFAULT_RACES = [
     ["Mouton","Suffolk"],["Mouton","Île-de-France"],["Mouton","Texel"],
     ["Vache","Holstein"],["Vache","Charolaise"],["Vache","Limousine"],
     ["Vache","Montbéliarde"],["Vache","Normande"],["Vache","Blonde d'Aquitaine"],
+]
+
+DEFAULT_FEEDTYPES = [
+    ["Paille"], ["Foin"], ["Céréales"], ["Mélange"], ["Graines"],
+    ["Orge (Ch'ir)"], ["Maïs grain et avoine (Khartal)"],
+    ["Pulpe de betterave séchée"], ["Son de blé (N'khala)"],
 ]
 
 DEFAULT_ANIMALS = [
@@ -126,7 +133,8 @@ def init_database():
     ws_races   = _ensure_worksheet(sh, "Races",   HEADERS_RACES)
     ws_users   = _ensure_worksheet(sh, "Users",   HEADERS_USERS)
     ws_stock   = _ensure_worksheet(sh, "Stock",   HEADERS_STOCK)
-    return ws_animaux, ws_races, ws_users, ws_stock
+    ws_feedtypes = _ensure_worksheet(sh, "TypesAliments", HEADERS_FEEDTYPES, DEFAULT_FEEDTYPES)
+    return ws_animaux, ws_races, ws_users, ws_stock, ws_feedtypes
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -257,6 +265,19 @@ def load_stock():
     return stock
 
 
+def load_feed_types():
+    """Charge la liste des types d'aliments depuis l'onglet TypesAliments."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("TypesAliments")
+    records = ws.get_all_records()
+    types = []
+    for r in records:
+        t = str(r.get("feedType", "")).strip()
+        if t and t not in types:
+            types.append(t)
+    return types
+
+
 # ══════════════════════════════════════════════════════════════════════
 # ÉCRITURE
 # ══════════════════════════════════════════════════════════════════════
@@ -333,6 +354,13 @@ def add_race(race_type, race_name):
     sh = get_spreadsheet()
     ws = sh.worksheet("Races")
     ws.append_row([race_type, race_name], value_input_option="USER_ENTERED")
+
+
+def add_feed_type(feed_type):
+    """Ajoute un nouveau type d'aliment à l'onglet TypesAliments."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("TypesAliments")
+    ws.append_row([feed_type.strip()], value_input_option="USER_ENTERED")
 
 
 def save_all_stock(stock):
