@@ -161,6 +161,7 @@ def init_state():
         "editing_fiche_id":None,
         "db_loaded": False,
         "show_stock_form": False, "confirm_delete_stock_id": None, "edit_stock_id": None,
+        "show_feedtype_form": False,
     }
     for k,v in d.items():
         if k not in st.session_state: st.session_state[k]=v
@@ -174,6 +175,8 @@ def init_state():
             st.session_state.races_vache  = races_v
             st.session_state.users = db.load_users()
             st.session_state.stock = db.load_stock()
+            feed_types = db.load_feed_types()
+            st.session_state.feed_types = feed_types if feed_types else list(FEED_TYPES)
             st.session_state.db_loaded = True
         except Exception as e:
             st.error(f"Impossible de se connecter à Google Sheets : {e}")
@@ -1099,34 +1102,97 @@ def page_animals():
     mc2.metric("Disponibles", sum(1 for a in filtered if a["status"]=="Disponible"))
     mc3.metric("Vendus",      sum(1 for a in filtered if a["status"]=="Vendu"))
     if not filtered: st.warning("Aucun animal trouvé.")
-    else:
+    elif is_obs:
         rows=[{"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],"Sexe":a["sex"],
                "Naissance":a["birth"],"Date d'achat":a.get("date_achat",""),"Origine":a.get("origin","Achat"),"Poids (kg)":a["weight"],
                "Prix achat":fmt(a["buyPrice"]),"Prix vente":fmt(a["sellPrice"]),"Statut":a["status"]} for a in filtered]
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
-        if not is_obs:
-            st.markdown("**Actions :**")
-            ac1,ac2,ac3=st.columns([2,1,1])
-            with ac1:
-                opts={a["earTag"]:a["id"] for a in filtered}
-                sel_tag=st.selectbox("",list(opts.keys()),label_visibility="collapsed")
-                sel_id=opts[sel_tag]
-            with ac2:
-                if st.button("Modifier",use_container_width=True):
-                    st.session_state.edit_id   = sel_id
-                    st.session_state.show_form = True
-                    st.rerun()
-            with ac3:
-                if st.button("Supprimer",use_container_width=True):
-                    a_to_delete = next((a for a in st.session_state.animals if a["id"]==sel_id), None)
-                    if a_to_delete:
-                        photos_to_delete = a_to_delete.get("photos") or ([a_to_delete["photo"]] if a_to_delete.get("photo") else [])
-                        if photos_to_delete:
-                            with st.spinner("Suppression des photos…"):
-                                supa_storage.delete_photos(photos_to_delete)
-                    st.session_state.animals=[a for a in st.session_state.animals if a["id"]!=sel_id]
-                    sync_animals()
-                    alert_box("Supprimé.", "success"); st.rerun()
+    else:
+        st.caption("Modifie directement une cellule, puis clique sur *Enregistrer les modifications du tableau*.")
+        all_races = sorted(set(st.session_state.races_mouton) | set(st.session_state.races_vache))
+        edit_rows=[{
+            "id":            a["id"],
+            "N° Boucle":     a["earTag"],
+            "Type":          a["type"],
+            "Race":          a["race"],
+            "Sexe":          a["sex"],
+            "Naissance":     pd.to_datetime(a.get("birth",""), errors="coerce"),
+            "Date d'achat":  pd.to_datetime(a.get("date_achat",""), errors="coerce"),
+            "Origine":       a.get("origin","Achat"),
+            "Poids (kg)":    float(a["weight"]),
+            "Prix achat":    float(a["buyPrice"]),
+            "Prix vente":    float(a["sellPrice"]),
+            "Statut":        a["status"],
+        } for a in filtered]
+        edit_df = pd.DataFrame(edit_rows).set_index("id")
+
+        edited_df = st.data_editor(
+            edit_df,
+            use_container_width=True,
+            num_rows="fixed",
+            key="animals_table_editor",
+            column_config={
+                "N° Boucle":    st.column_config.TextColumn("N° Boucle"),
+                "Type":         st.column_config.SelectboxColumn("Type", options=["Mouton","Vache"]),
+                "Race":         st.column_config.SelectboxColumn("Race", options=all_races),
+                "Sexe":         st.column_config.SelectboxColumn("Sexe", options=["Mâle","Femelle"]),
+                "Naissance":    st.column_config.DateColumn("Naissance", format="YYYY-MM-DD"),
+                "Date d'achat": st.column_config.DateColumn("Date d'achat", format="YYYY-MM-DD"),
+                "Origine":      st.column_config.SelectboxColumn("Origine", options=["Achat","Naissance"]),
+                "Poids (kg)":   st.column_config.NumberColumn("Poids (kg)", min_value=0.0, step=1.0),
+                "Prix achat":   st.column_config.NumberColumn("Prix achat", min_value=0.0, step=1.0),
+                "Prix vente":   st.column_config.NumberColumn("Prix vente", min_value=0.0, step=1.0),
+                "Statut":       st.column_config.SelectboxColumn("Statut", options=["Disponible","Vendu","Malade","En quarantaine"]),
+            },
+        )
+
+        if st.button("Enregistrer les modifications du tableau", key="save_animals_table"):
+            updated_map = {}
+            for aid, row in edited_df.iterrows():
+                birth_d = row["Naissance"]
+                achat_d = row["Date d'achat"]
+                updated_map[int(aid)] = {
+                    "earTag":     row["N° Boucle"],
+                    "type":       row["Type"],
+                    "race":       row["Race"],
+                    "sex":        row["Sexe"],
+                    "birth":      birth_d.strftime("%Y-%m-%d") if pd.notna(birth_d) else "",
+                    "date_achat": achat_d.strftime("%Y-%m-%d") if pd.notna(achat_d) else "",
+                    "origin":     row["Origine"],
+                    "weight":     float(row["Poids (kg)"]),
+                    "buyPrice":   float(row["Prix achat"]),
+                    "sellPrice":  float(row["Prix vente"]),
+                    "status":     row["Statut"],
+                }
+            for a in st.session_state.animals:
+                if a["id"] in updated_map:
+                    a.update(updated_map[a["id"]])
+            sync_animals()
+            alert_box("Tableau mis à jour !", "success")
+            st.rerun()
+
+        st.markdown("**Actions :**")
+        ac1,ac2,ac3=st.columns([2,1,1])
+        with ac1:
+            opts={a["earTag"]:a["id"] for a in filtered}
+            sel_tag=st.selectbox("",list(opts.keys()),label_visibility="collapsed")
+            sel_id=opts[sel_tag]
+        with ac2:
+            if st.button("Modifier (photos, notes…)",use_container_width=True):
+                st.session_state.edit_id   = sel_id
+                st.session_state.show_form = True
+                st.rerun()
+        with ac3:
+            if st.button("Supprimer",use_container_width=True):
+                a_to_delete = next((a for a in st.session_state.animals if a["id"]==sel_id), None)
+                if a_to_delete:
+                    photos_to_delete = a_to_delete.get("photos") or ([a_to_delete["photo"]] if a_to_delete.get("photo") else [])
+                    if photos_to_delete:
+                        with st.spinner("Suppression des photos…"):
+                            supa_storage.delete_photos(photos_to_delete)
+                st.session_state.animals=[a for a in st.session_state.animals if a["id"]!=sel_id]
+                sync_animals()
+                alert_box("Supprimé.", "success"); st.rerun()
 
     if st.session_state.get("edit_modal_id") is not None:
         show_edit_modal(st.session_state.edit_modal_id)
@@ -1589,7 +1655,7 @@ def page_stock():
     total_cost = sum(s["buyPrice"]   for s in stock)
     n_types    = len({s["feedType"] for s in stock})
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns([1,1,1,1,1])
     c1.metric("Stock total", f"{total_kg:,.0f} kg".replace(",", " "))
     c2.metric("Valeur du stock", fmt(total_cost))
     c3.metric("Types d'aliments", n_types)
@@ -1598,8 +1664,43 @@ def page_stock():
         if not is_obs:
             if st.button("Nouvel achat", use_container_width=True, key="btn_new_stock"):
                 st.session_state.show_stock_form = not st.session_state.show_stock_form
+                st.session_state.show_feedtype_form = False
                 st.session_state.edit_stock_id = None
                 st.rerun()
+    with c5:
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if not is_obs:
+            if st.button("Nouveau type d'aliment", use_container_width=True, key="btn_new_feedtype"):
+                st.session_state.show_feedtype_form = not st.session_state.show_feedtype_form
+                st.session_state.show_stock_form = False
+                st.rerun()
+
+    if st.session_state.show_feedtype_form and not is_obs:
+        st.markdown(f'<div style="background:{STOCK_ACCENT};border-radius:14px 14px 0 0;padding:14px 20px;color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px;">{svg("cart",18,"#fff")}<span>Ajouter un type d\'aliment</span></div>', unsafe_allow_html=True)
+        ftc1, ftc2 = st.columns([3,1])
+        with ftc1:
+            new_feed_type = st.text_input("Nom du type", placeholder="ex: Tourteau de soja", key="new_feedtype_input", label_visibility="collapsed")
+        with ftc2:
+            if st.button("Ajouter", key="btn_add_feedtype", use_container_width=True):
+                name = new_feed_type.strip()
+                if name:
+                    if name not in st.session_state.feed_types:
+                        st.session_state.feed_types.append(name)
+                        try:
+                            db.add_feed_type(name)
+                            alert_box(f"Type « {name} » ajouté !", "success")
+                        except Exception as e:
+                            st.error(f"Erreur de synchronisation : {e}")
+                        st.session_state.show_feedtype_form = False
+                        st.rerun()
+                    else:
+                        st.warning("Ce type existe déjà.")
+                else:
+                    st.error("Entrez un nom.")
+        if st.button("Fermer", key="close_feedtype"):
+            st.session_state.show_feedtype_form = False
+            st.rerun()
+        st.markdown("<hr>", unsafe_allow_html=True)
 
     eid_stock = st.session_state.edit_stock_id
     ini_stock = next((s for s in stock if s["id"]==eid_stock), None) if eid_stock else None
@@ -1614,7 +1715,8 @@ def page_stock():
 
         default_date = datetime.strptime(ini_stock["date_achat"], "%Y-%m-%d").date() \
             if is_edit_stock and ini_stock.get("date_achat") else datetime.now().date()
-        default_type  = ini_stock["feedType"] if is_edit_stock else FEED_TYPES[0]
+        feed_types_list = st.session_state.feed_types
+        default_type  = ini_stock["feedType"] if is_edit_stock else feed_types_list[0]
         default_qty   = float(ini_stock["quantity"]) if is_edit_stock else 0.0
         default_unit  = ini_stock.get("unit","kg") if is_edit_stock else list(UNIT_TO_KG.keys())[0]
         default_price = float(ini_stock["buyPrice"]) if is_edit_stock else 0.0
@@ -1624,8 +1726,8 @@ def page_stock():
             fc1, fc2 = st.columns(2)
             with fc1:
                 f_date = st.date_input("Date d'achat", value=default_date)
-                f_type = st.selectbox("Type d'aliment", FEED_TYPES,
-                                       index=FEED_TYPES.index(default_type) if default_type in FEED_TYPES else 0)
+                f_type = st.selectbox("Type d'aliment", feed_types_list,
+                                       index=feed_types_list.index(default_type) if default_type in feed_types_list else 0)
             with fc2:
                 f_qty  = st.number_input("Quantité", min_value=0.0, step=1.0, value=default_qty)
                 unit_keys = list(UNIT_TO_KG.keys())
@@ -1700,7 +1802,7 @@ def page_stock():
 
     filt_c1, filt_c2 = st.columns([2, 1])
     with filt_c1:
-        filter_type = st.selectbox("Filtrer par type", ["Tous"] + FEED_TYPES, key="stock_filter_type")
+        filter_type = st.selectbox("Filtrer par type", ["Tous"] + st.session_state.feed_types, key="stock_filter_type")
     with filt_c2:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
 
@@ -1738,7 +1840,7 @@ def page_stock():
             key="stock_table_editor",
             column_config={
                 "Date d'achat": st.column_config.DateColumn("Date d'achat", format="YYYY-MM-DD"),
-                "Type":  st.column_config.SelectboxColumn("Type", options=FEED_TYPES),
+                "Type":  st.column_config.SelectboxColumn("Type", options=st.session_state.feed_types),
                 "Quantité": st.column_config.NumberColumn("Quantité", min_value=0.0, step=1.0),
                 "Unité": st.column_config.SelectboxColumn("Unité", options=list(UNIT_TO_KG.keys())),
                 "Prix d'achat (MAD)": st.column_config.NumberColumn("Prix d'achat (MAD)", min_value=0.0, step=1.0),
