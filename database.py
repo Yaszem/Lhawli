@@ -55,6 +55,7 @@ HEADERS_USERS   = ["email","password","name","role","statut","date_inscription"]
 #                                                    ^^^^^^^ En attente / Actif / Refusé
 HEADERS_STOCK   = ["id","date_achat","feedType","quantity","unit","quantityKg","buyPrice","notes"]
 HEADERS_FEEDTYPES = ["feedType"]
+HEADERS_DEPENSES = ["id","date","categorie","description","montant","payePar","notes"]
 
 DEFAULT_USERS = [
     ["admin@elevio.fr",    hash_password("admin123"),   "Ahmed Benali",    "Administrateur", "Actif", "2024-01-01"],
@@ -134,7 +135,8 @@ def init_database():
     ws_users   = _ensure_worksheet(sh, "Users",   HEADERS_USERS)
     ws_stock   = _ensure_worksheet(sh, "Stock",   HEADERS_STOCK)
     ws_feedtypes = _ensure_worksheet(sh, "TypesAliments", HEADERS_FEEDTYPES, DEFAULT_FEEDTYPES)
-    return ws_animaux, ws_races, ws_users, ws_stock, ws_feedtypes
+    ws_depenses  = _ensure_worksheet(sh, "Depenses", HEADERS_DEPENSES)
+    return ws_animaux, ws_races, ws_users, ws_stock, ws_feedtypes, ws_depenses
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -151,11 +153,21 @@ def load_animals():
             continue
         raw_photos = r.get("photos","")
         try:
-            photos = json.loads(raw_photos) if raw_photos else []
+            parsed = json.loads(raw_photos) if raw_photos else []
         except Exception:
-            photos = [raw_photos] if raw_photos else []
+            parsed = [raw_photos] if raw_photos else []
+        # Normalise chaque photo en dict {"url":..., "date":...} (compatibilité
+        # ascendante avec l'ancien format où "photos" était une simple liste d'URLs)
+        photos = []
+        for p in parsed:
+            if isinstance(p, dict):
+                url = p.get("url", "")
+                if url:
+                    photos.append({"url": url, "date": p.get("date", "") or ""})
+            elif isinstance(p, str) and p:
+                photos.append({"url": p, "date": ""})
         if not photos and r.get("photo"):
-            photos = [r["photo"]]
+            photos = [{"url": r["photo"], "date": ""}]
         animals.append({
             "id":        int(r["id"]) if str(r["id"]).strip() else 0,
             "type":      str(r["type"]), "race": str(r["race"]), "sex": str(r["sex"]),
@@ -167,7 +179,7 @@ def load_animals():
             "notes":     str(r.get("notes","")),
             "origin":    str(r.get("origin","")).strip() or "Achat",
             "date_achat": str(r.get("date_achat","")).strip(),
-            "photo":     photos[0] if photos else None,
+            "photo":     photos[0]["url"] if photos else None,
             "photos":    photos,
         })
     return animals
@@ -278,6 +290,27 @@ def load_feed_types():
     return types
 
 
+def load_expenses():
+    """Charge la liste des dépenses depuis l'onglet Depenses."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("Depenses")
+    records = ws.get_all_records()
+    expenses = []
+    for r in records:
+        if not str(r.get("categorie","")).strip():
+            continue
+        expenses.append({
+            "id":          int(r["id"]) if str(r.get("id","")).strip() else 0,
+            "date":        str(r.get("date","")),
+            "categorie":   str(r.get("categorie","")),
+            "description": str(r.get("description","")),
+            "montant":     float(r["montant"]) if str(r.get("montant","")).strip() else 0.0,
+            "payePar":     str(r.get("payePar","")),
+            "notes":       str(r.get("notes","")),
+        })
+    return expenses
+
+
 # ══════════════════════════════════════════════════════════════════════
 # ÉCRITURE
 # ══════════════════════════════════════════════════════════════════════
@@ -289,16 +322,23 @@ def save_all_animals(animals):
     ws = sh.worksheet("Animaux")
     rows = [HEADERS_ANIMAUX]
     for a in animals:
-        photos = a.get("photos") or ([a["photo"]] if a.get("photo") else [])
-        # Filtrer les éventuels base64 résiduels (ne garder que les URLs http)
-        photos = [p for p in photos if p and str(p).startswith("http")]
-        first_photo = photos[0] if photos else ""
+        photos = a.get("photos") or ([{"url": a["photo"], "date": ""}] if a.get("photo") else [])
+        # Normalise en dicts {"url":..., "date":...} et filtre les entrées invalides
+        norm_photos = []
+        for p in photos:
+            if isinstance(p, dict):
+                url = p.get("url", "")
+                if url and str(url).startswith("http"):
+                    norm_photos.append({"url": url, "date": p.get("date","") or ""})
+            elif isinstance(p, str) and p.startswith("http"):
+                norm_photos.append({"url": p, "date": ""})
+        first_photo = norm_photos[0]["url"] if norm_photos else ""
         rows.append([
             a["id"], a["type"], a["race"], a["sex"], a["birth"], a["earTag"],
             a["buyPrice"], a["sellPrice"], a["status"], a["weight"],
             a.get("notes",""),
             first_photo,
-            json.dumps(photos, ensure_ascii=False),
+            json.dumps(norm_photos, ensure_ascii=False),
             a.get("origin","Achat"),
             a.get("date_achat",""),
         ])
@@ -386,4 +426,28 @@ def add_stock_entry(entry):
         entry["id"], entry.get("date_achat",""), entry["feedType"], entry["quantity"],
         entry.get("unit","kg"), entry.get("quantityKg", entry["quantity"]),
         entry["buyPrice"], entry.get("notes",""),
+    ], value_input_option="USER_ENTERED")
+
+
+def save_all_expenses(expenses):
+    """Réécrit entièrement l'onglet Depenses."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("Depenses")
+    rows = [HEADERS_DEPENSES]
+    for e in expenses:
+        rows.append([
+            e["id"], e.get("date",""), e["categorie"], e.get("description",""),
+            e["montant"], e.get("payePar",""), e.get("notes",""),
+        ])
+    ws.clear()
+    ws.update(rows, value_input_option="USER_ENTERED")
+
+
+def add_expense_entry(entry):
+    """Ajoute une dépense (vétérinaire, transport, équipement, etc.)."""
+    sh = get_spreadsheet()
+    ws = sh.worksheet("Depenses")
+    ws.append_row([
+        entry["id"], entry.get("date",""), entry["categorie"], entry.get("description",""),
+        entry["montant"], entry.get("payePar",""), entry.get("notes",""),
     ], value_input_option="USER_ENTERED")
