@@ -33,14 +33,12 @@ FEED_TYPES = [
 UNIT_TO_KG = {"kg": 1, "sachet": 1, "balle": 1}
 
 EXPENSE_CATEGORIES = [
-    "Vétérinaire",
     "Médicaments",
     "Transport",
-    "Équipement",
+    "Nourriture",
     "Main d'œuvre",
-    "Entretien / Réparation",
-    "Eau / Électricité",
-    "Location de terrain",
+    "Entretien",
+    "Eau",
     "Autre",
 ]
 
