@@ -6,7 +6,7 @@ import storage as supa_storage
 import hashlib
 import streamlit.components.v1 as components
 import database as db
-from datetime import datetime
+from datetime import datetime, date
 
 st.set_page_config(page_title="Lhawli – Gestion de bétail", page_icon="🐑",
                    layout="wide", initial_sidebar_state="expanded")
@@ -17,6 +17,7 @@ ACCENT_LIGHT = "#E8F4F0"
 RED          = "#E53935"
 GREEN        = "#2E7D5B"
 STOCK_ACCENT = "#B8860B"
+EXPENSE_ACCENT = "#8E24AA"
 
 FEED_TYPES = [
     "Paille",
@@ -30,6 +31,18 @@ FEED_TYPES = [
     "Son de blé (N'khala)",
 ]
 UNIT_TO_KG = {"kg": 1, "sachet": 1, "balle": 1}
+
+EXPENSE_CATEGORIES = [
+    "Vétérinaire",
+    "Médicaments",
+    "Transport",
+    "Équipement",
+    "Main d'œuvre",
+    "Entretien / Réparation",
+    "Eau / Électricité",
+    "Location de terrain",
+    "Autre",
+]
 
 # ── SVG helper ──────────────────────────────────────────────────────────
 def svg(name, size=18, color="currentColor"):
@@ -72,6 +85,8 @@ def svg(name, size=18, color="currentColor"):
         "search":    f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
         "birth":     f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22c-4-3-7-6.5-7-10a7 7 0 0114 0c0 3.5-3 7-7 10z"/><circle cx="12" cy="11" r="2.5"/></svg>',
         "cart":      f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>',
+        "clock":     f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+        "receipt":   f'<svg width="{s}" height="{s}" fill="none" stroke="{color}" stroke-width="2" viewBox="0 0 24 24"><path d="M4 2h16v20l-3-2-3 2-3-2-3 2-3-2-1 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="12" y2="15"/></svg>',
     }
     return icons.get(name, "")
 
@@ -134,6 +149,32 @@ st.markdown(f"""
   .badge-quaran {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-naissance {{ background:#F3E8FD; color:#7B1FA2; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-achat  {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
+
+  /* ── Adaptation mobile / petits écrans ────────────────────────────── */
+  @media (max-width: 768px) {{
+    .block-container {{ padding: 0.8rem 0.8rem 4.5rem !important; }}
+    [data-testid="stMetricValue"] {{ font-size:20px !important; }}
+    [data-testid="stMetric"] {{ padding:12px 14px !important; }}
+    .cat-header {{ font-size:24px !important; margin:4px 0 16px !important; }}
+    div[data-testid="stMain"] .stButton > button {{
+      padding:11px 16px !important; font-size:14px !important; min-height:42px;
+    }}
+    /* Les colonnes du contenu principal s'empilent en une seule colonne */
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] {{
+      flex-direction: column !important;
+    }}
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {{
+      width: 100% !important;
+      flex: 1 1 100% !important;
+      min-width: 100% !important;
+    }}
+    /* Sauf les petites rangées de navigation photo (‹ compteur ›) qu'on garde en ligne */
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"].keep-row {{
+      flex-direction: row !important;
+    }}
+    .add-photo-thumb, .cat-card-img-wrap {{ aspect-ratio: 4/3 !important; }}
+    h3 {{ font-size:19px !important; }}
+  }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -152,6 +193,36 @@ def sanitize_animals(animals):
         a["date_achat"] = str(a.get("date_achat",""))
     return animals
 
+# ── Helpers photos (structure {"url":..., "date":...}) ──────────────
+def photo_url(p):
+    """Retourne l'URL d'une entrée photo, qu'elle soit dict ou ancienne string."""
+    if isinstance(p, dict):
+        return p.get("url", "")
+    return p or ""
+
+def photo_date(p):
+    if isinstance(p, dict):
+        return p.get("date", "") or ""
+    return ""
+
+def sorted_photos(photos):
+    """Trie les photos par date croissante (les photos sans date restent en fin, ordre d'ajout)."""
+    with_date    = [p for p in (photos or []) if photo_date(p)]
+    without_date = [p for p in (photos or []) if not photo_date(p)]
+    with_date.sort(key=lambda p: photo_date(p))
+    return with_date + without_date
+
+def age_between(birth, at_date_str):
+    """Âge (en mois) entre la date de naissance et une date donnée."""
+    try:
+        b = date.fromisoformat(str(birth))
+        a = date.fromisoformat(str(at_date_str))
+        m = (a.year - b.year) * 12 + (a.month - b.month)
+        m = max(m, 0)
+        return f"{m//12}a {m%12}m" if m >= 12 else f"{m} mois"
+    except Exception:
+        return "—"
+
 def init_state():
     d = {
         "page":"Dashboard","auth":None,
@@ -162,6 +233,7 @@ def init_state():
         "db_loaded": False,
         "show_stock_form": False, "confirm_delete_stock_id": None, "edit_stock_id": None,
         "show_feedtype_form": False,
+        "show_expense_form": False, "edit_expense_id": None, "confirm_delete_expense_id": None,
     }
     for k,v in d.items():
         if k not in st.session_state: st.session_state[k]=v
@@ -177,6 +249,7 @@ def init_state():
             st.session_state.stock = db.load_stock()
             feed_types = db.load_feed_types()
             st.session_state.feed_types = feed_types if feed_types else list(FEED_TYPES)
+            st.session_state.expenses = db.load_expenses()
             st.session_state.db_loaded = True
         except Exception as e:
             st.error(f"Impossible de se connecter à Google Sheets : {e}")
@@ -186,7 +259,7 @@ def init_state():
 init_state()
 USERS = st.session_state.users
 
-VALID_PAGES = ["Dashboard","Animaux","Catalogue","Ventes","Stock","Statistiques","Utilisateurs","Paramètres","FicheAnimal"]
+VALID_PAGES = ["Dashboard","Animaux","Catalogue","Ventes","Stock","Depenses","Statistiques","Utilisateurs","Paramètres","FicheAnimal"]
 
 def restore_session_from_url():
     qp = st.query_params
@@ -226,6 +299,13 @@ def sync_stock():
     except Exception as e:
         st.error(f"Erreur de synchronisation Google Sheets (Stock) : {e}")
 
+def sync_expenses():
+    """Sauvegarde les dépenses dans Google Sheets."""
+    try:
+        db.save_all_expenses(st.session_state.expenses)
+    except Exception as e:
+        st.error(f"Erreur de synchronisation Google Sheets (Dépenses) : {e}")
+
 def stock_to_kg(qty, unit):
     return float(qty) * UNIT_TO_KG.get(unit, 1)
 
@@ -252,126 +332,65 @@ def go_to_catalogue():
     if "animal_id" in st.query_params:
         del st.query_params["animal_id"]
 
-# ══════════════════════════ CARROUSEL HTML AVEC BADGE INTÉGRÉ ══════════
-def generate_carousel_html(photos, card_id, status, height=320):
-    """
-    Retourne un bloc HTML autonome contenant :
-    - le badge de statut (superposé en haut à gauche)
-    - le carrousel d'images (ou une image par défaut)
-    Le tout avec le même style que le catalogue original.
-    """
-    # Style des badges identique à l'original
-    badge_styles = {
-        "Disponible":    ("background:#E8F5E9; color:#2E7D32;", "DISPONIBLE"),
-        "Vendu":         ("background:#FFF3E0; color:#E65100;", "VENDU"),
-        "Malade":        ("background:#FFEBEE; color:#C62828;", "MALADE"),
-        "En quarantaine":("background:#E3F2FD; color:#1565C0;", "QUARANTAINE"),
-    }
-    badge_style, badge_text = badge_styles.get(status, ("background:#E8F5E9; color:#2E7D32;", "DISPONIBLE"))
-
-    # Image par défaut si pas de photos
-    if not photos:
-        return f"""
-        <div style="position:relative; width:100%; height:{height}px; background:#F5F5F5; border-radius:2px; overflow:hidden;">
-            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                <span style="color:#BDBDBD;font-size:12px;letter-spacing:.04em;">Aucune image</span>
-            </div>
-            <div style="position:absolute; top:10px; left:10px; font-size:9px; font-weight:700;
-                        letter-spacing:.1em; text-transform:uppercase; padding:3px 8px;
-                        border-radius:2px; {badge_style}">
-                {badge_text}
-            </div>
-        </div>"""
-
-    # Carrousel avec une seule image (pas de JS)
-    if len(photos) == 1:
-        return f"""
-        <div style="position:relative; width:100%; height:{height}px; background:#F5F5F5; border-radius:2px; overflow:hidden;">
-            <img src="{photos[0]}" style="width:100%;height:100%;object-fit:cover;">
-            <div style="position:absolute; top:10px; left:10px; font-size:9px; font-weight:700;
-                        letter-spacing:.1em; text-transform:uppercase; padding:3px 8px;
-                        border-radius:2px; {badge_style}">
-                {badge_text}
-            </div>
-        </div>"""
-
-    # Carrousel multi-images avec JavaScript
-    slides = ""
-    dots = ""
-    for i, p in enumerate(photos):
-        display = "block" if i == 0 else "none"
-        slides += f'<img id="{card_id}_img_{i}" src="{p}" style="width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;display:{display};">'
-        active = "active" if i == 0 else ""
-        dots += f'<span class="cat-dot {active}" id="{card_id}_dot_{i}" onclick="goto_{card_id}({i})"></span>'
-
-    return f"""
-    <style>
-    .cat-dot {{
-        width: 8px; height: 8px;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.5);
-        display: inline-block;
-        margin: 0 3px;
-        cursor: pointer;
-        transition: background 0.2s;
-    }}
-    .cat-dot.active {{ background: #fff; }}
-    .carousel-btn {{
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        background: rgba(0,0,0,0.25);
-        color: #fff;
-        border-radius: 50%;
-        width: 28px;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        font-size: 18px;
-        user-select: none;
-        z-index: 10;
-    }}
-    .carousel-btn:hover {{ background: rgba(0,0,0,0.5); }}
-    </style>
-    <div style="position:relative; width:100%; height:{height}px; background:#F5F5F5; border-radius:2px; overflow:hidden;">
-        {slides}
-        <div style="position:absolute; bottom:10px; left:0; right:0; text-align:center; z-index:10;">
-            {dots}
-        </div>
-        <div class="carousel-btn" style="left:8px;" onclick="prev_{card_id}()">‹</div>
-        <div class="carousel-btn" style="right:8px;" onclick="next_{card_id}()">›</div>
-        <!-- Badge de statut -->
-        <div style="position:absolute; top:10px; left:10px; font-size:9px; font-weight:700;
-                    letter-spacing:.1em; text-transform:uppercase; padding:3px 8px;
-                    border-radius:2px; {badge_style}; z-index:20;">
-            {badge_text}
-        </div>
-    </div>
-    <script>
-    var total_{card_id} = {len(photos)};
-    var current_{card_id} = 0;
-    function goto_{card_id}(idx) {{
-        for (var i = 0; i < total_{card_id}; i++) {{
-            document.getElementById('{card_id}_img_'+i).style.display = (i === idx) ? 'block' : 'none';
-            var dot = document.getElementById('{card_id}_dot_'+i);
-            if (dot) {{ dot.classList.remove('active'); if (i === idx) dot.classList.add('active'); }}
-        }}
-        current_{card_id} = idx;
-    }}
-    function next_{card_id}() {{ goto_{card_id}((current_{card_id}+1) % total_{card_id}); }}
-    function prev_{card_id}() {{ goto_{card_id}((current_{card_id}-1+total_{card_id}) % total_{card_id}); }}
-    </script>
-    """
-
 # ══════════════════════════ ZOOM PHOTO (DIALOG) ═══════════════════════
 @st.dialog(" ", width="large")
-def show_photo_zoom(ear_tag, photo_url):
+def show_photo_zoom(ear_tag, photo_url_str):
     st.markdown(f"**{ear_tag}**")
-    st.image(photo_url, use_container_width=True)
+    st.image(photo_url_str, use_container_width=True)
     if st.button("Fermer", use_container_width=True, key="close_zoom"):
         st.rerun()
+
+# ══════════════════════════ HISTORIQUE PHOTOS / CROISSANCE ═══════════
+def render_growth_timeline(a):
+    """Affiche une frise chronologique des photos pour suivre la croissance de l'animal."""
+    photos = sorted_photos(a.get("photos") or ([{"url": a["photo"], "date": ""}] if a.get("photo") else []))
+    dated = [p for p in photos if photo_date(p)]
+
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:8px;margin:22px 0 10px;">
+      {svg("clock",18,ACCENT)}<span style="font-weight:700;font-size:15px;">Historique de croissance</span>
+    </div>""", unsafe_allow_html=True)
+
+    if not photos:
+        st.caption("Aucune photo pour le moment. Ajoute des photos datées pour voir l'animal grandir dans le temps.")
+        return
+    if not dated:
+        st.caption("Astuce : ajoute une date à chaque photo (lors de l'ajout/modification) pour activer la frise de croissance.")
+        thumb_cols = st.columns(min(len(photos), 4))
+        for col, p in zip(thumb_cols, photos):
+            with col:
+                st.image(photo_url(p), use_container_width=True)
+        return
+
+    slider_key = f"growth_slider_{a['id']}"
+    labels = [f"{photo_date(p)} · {age_between(a['birth'], photo_date(p))}" for p in dated]
+    if len(dated) == 1:
+        sel_label = labels[0]
+    else:
+        sel_label = st.select_slider("Fais glisser pour voir l'évolution dans le temps",
+                                      options=labels, value=labels[-1], key=slider_key)
+    sel_idx = labels.index(sel_label)
+    sel_photo = dated[sel_idx]
+
+    ic1, ic2 = st.columns([1.3, 1])
+    with ic1:
+        st.image(photo_url(sel_photo), use_container_width=True)
+    with ic2:
+        st.markdown(f"""
+        <div style="background:{ACCENT_LIGHT};border-radius:12px;padding:16px;margin-top:4px;">
+          <div style="font-size:11px;color:#8A8A8A;text-transform:uppercase;letter-spacing:.06em;">Date de la photo</div>
+          <div style="font-weight:700;font-size:16px;color:{ACCENT_DARK};margin-bottom:10px;">{photo_date(sel_photo)}</div>
+          <div style="font-size:11px;color:#8A8A8A;text-transform:uppercase;letter-spacing:.06em;">Âge à ce moment</div>
+          <div style="font-weight:700;font-size:16px;color:{ACCENT_DARK};">{age_between(a["birth"], photo_date(sel_photo))}</div>
+        </div>""", unsafe_allow_html=True)
+
+    if len(dated) > 1:
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        strip_cols = st.columns(min(len(dated), 6))
+        for col, p in zip(strip_cols, dated):
+            with col:
+                st.image(photo_url(p), use_container_width=True)
+                st.caption(photo_date(p))
 
 # ══════════════════════════ PAGE FICHE ANIMAL ══════════════════════════
 def page_animal_detail(animal_id):
@@ -397,7 +416,7 @@ def page_animal_detail(animal_id):
         st.rerun()
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    photos = a.get("photos") or ([a["photo"]] if a.get("photo") else [])
+    photos = a.get("photos") or ([{"url": a["photo"], "date": ""}] if a.get("photo") else [])
 
     gal_col, info_col = st.columns([1.1, 1.4])
 
@@ -409,17 +428,17 @@ def page_animal_detail(animal_id):
             sel_key = f"selected_photo_{a['id']}"
             if sel_key not in st.session_state or st.session_state[sel_key] >= len(photos):
                 st.session_state[sel_key] = 0
-            st.image(photos[st.session_state[sel_key]], use_container_width=True)
+            st.image(photo_url(photos[st.session_state[sel_key]]), use_container_width=True)
             zc1, zc2 = st.columns([1,3])
             with zc1:
                 if st.button("Agrandir", use_container_width=True, key=f"zoom_btn_{a['id']}"):
-                    show_photo_zoom(a["earTag"], photos[st.session_state[sel_key]])
+                    show_photo_zoom(a["earTag"], photo_url(photos[st.session_state[sel_key]]))
             if len(photos) > 1:
                 st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
                 thumb_cols = st.columns(len(photos))
                 for i, (col, p) in enumerate(zip(thumb_cols, photos)):
                     with col:
-                        st.image(p, use_container_width=True)
+                        st.image(photo_url(p), use_container_width=True)
                         if st.button("Voir", key=f"thumb_{a['id']}_{i}", use_container_width=True):
                             st.session_state[sel_key] = i
                             st.rerun()
@@ -493,7 +512,7 @@ def page_animal_detail(animal_id):
                             "sellPrice": sell_p, "status": status, "weight": weight,
                             "notes": notes, "origin": origin, "date_achat": date_achat.strip(),
                             "photos": saved_photos,
-                            "photo":  saved_photos[0] if saved_photos else None,
+                            "photo":  photo_url(saved_photos[0]) if saved_photos else None,
                         }
                         st.session_state.animals = [updated if x["id"]==a["id"] else x
                                                     for x in st.session_state.animals]
@@ -583,7 +602,7 @@ def page_animal_detail(animal_id):
                         st.rerun()
                 with dc2:
                     if st.button("Confirmer la suppression", use_container_width=True, key="confirm_delete"):
-                        photos_to_delete = a.get("photos") or ([a["photo"]] if a.get("photo") else [])
+                        photos_to_delete = [photo_url(p) for p in (a.get("photos") or ([{"url": a["photo"]}] if a.get("photo") else []))]
                         if photos_to_delete:
                             with st.spinner("Suppression des photos…"):
                                 supa_storage.delete_photos(photos_to_delete)
@@ -593,6 +612,9 @@ def page_animal_detail(animal_id):
                         go_to_catalogue()
                         alert_box("Animal supprimé.", "success")
                         st.rerun()
+
+    if not is_editing:
+        render_growth_timeline(a)
 
 # ══════════════════════════ MODAL MODIFICATION (pour page Animaux) ═══
 @st.dialog("Modifier l'animal", width="large")
@@ -626,7 +648,7 @@ def show_edit_modal(animal_id):
     notes  = st.text_input("Notes", value=a.get("notes",""), placeholder="ex: bonne laitière…")
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
     st.markdown("**Photos**")
-    current_photos = a.get("photos") or ([a["photo"]] if a.get("photo") else [])
+    current_photos = a.get("photos") or ([{"url": a["photo"], "date": ""}] if a.get("photo") else [])
     new_photos = photo_uploader_block(f"editmodal_{animal_id}", current_photos)
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     bc1, bc2 = st.columns([1,2])
@@ -647,7 +669,7 @@ def show_edit_modal(animal_id):
                     "sellPrice": sell_p, "status": status, "weight": weight,
                     "notes": notes, "origin": origin, "date_achat": date_achat.strip(),
                     "photos": new_photos,
-                    "photo":  new_photos[0] if new_photos else a.get("photo"),
+                    "photo":  photo_url(new_photos[0]) if new_photos else a.get("photo"),
                 }
                 st.session_state.animals = [updated if x["id"]==a["id"] else x
                                             for x in st.session_state.animals]
@@ -774,6 +796,7 @@ def sidebar_nav():
             ("catalogue", "Catalogue",    "Catalogue"),
             ("sales",     "Ventes",       "Ventes"),
             ("cart",      "Stock",        "Stock"),
+            ("receipt",   "Dépenses",     "Depenses"),
             ("stats",     "Statistiques", "Statistiques"),
             ("users",     "Utilisateurs", "Utilisateurs"),
             ("settings",  "Paramètres",   "Paramètres"),
@@ -824,6 +847,7 @@ def sidebar_nav():
                 st.session_state.races_mouton = races_m
                 st.session_state.races_vache  = races_v
                 st.session_state.stock = db.load_stock()
+                st.session_state.expenses = db.load_expenses()
                 alert_box("Données rechargées !", "success")
                 st.rerun()
 
@@ -881,6 +905,30 @@ def page_dashboard():
               <span style="display:flex;align-items:center;gap:7px;font-size:12px;">
                 <span style="width:8px;height:8px;border-radius:50%;background:{color};display:inline-block;"></span>{label}
               </span><b style="font-size:13px">{val}</b></div>""", unsafe_allow_html=True)
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    expenses = st.session_state.get("expenses", [])
+    total_depenses = sum(e["montant"] for e in expenses)
+    ce1, ce2 = st.columns([1,3])
+    with ce1:
+        st.markdown("**Dépenses totales**")
+        st.markdown(f"""
+        <div style="background:#F5EEF9;border-radius:14px;padding:16px;text-align:center;">
+          {svg("receipt",22,EXPENSE_ACCENT)}
+          <div style="font-weight:800;font-size:20px;color:{EXPENSE_ACCENT};margin-top:6px;">{fmt(total_depenses)}</div>
+          <div style="font-size:11px;color:#8A8A8A;">{len(expenses)} dépense(s) enregistrée(s)</div>
+        </div>""", unsafe_allow_html=True)
+    with ce2:
+        st.markdown("**Bilan financier global**")
+        bilan = tv2 - ta - total_depenses
+        bilan_c = GREEN if bilan >= 0 else RED
+        st.markdown(f"""
+        <div style="background:#F8F8F8;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:11px;color:#8A8A8A;">Revenus ventes − Achats − Dépenses</div>
+          <div style="font-size:12px;color:#8A8A8A;margin-top:2px;">{fmt(tv2)} − {fmt(ta)} − {fmt(total_depenses)}</div></div>
+          <div style="font-weight:800;font-size:22px;color:{bilan_c}">{"+" if bilan>=0 else ""}{fmt(bilan)}</div>
+        </div>""", unsafe_allow_html=True)
+
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     st.markdown("**Animaux récents**")
     rows=[{"N° Boucle":a["earTag"],"Type":a["type"],"Race":a["race"],
@@ -978,12 +1026,12 @@ def page_catalogue():
         st.markdown('<div style="text-align:center;padding:60px 0;color:#8A8A8A;font-size:13px;letter-spacing:.06em;">AUCUN ANIMAL TROUVÉ</div>', unsafe_allow_html=True)
         return
 
-    # ── Grille 3 colonnes ──
+    # ── Grille 3 colonnes (s'empile en 1 colonne sur mobile via CSS) ──
     for i in range(0, len(filtered), 3):
         cols = st.columns(3, gap="large")
         for col, a in zip(cols, filtered[i:i+3]):
             is_mouton = a["type"] == "Mouton"
-            photos    = a.get("photos") or ([a["photo"]] if a.get("photo") else [])
+            photos    = a.get("photos") or ([{"url": a["photo"]}] if a.get("photo") else [])
             badge_map = {
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
@@ -1001,7 +1049,7 @@ def page_catalogue():
                     st.session_state[idx_key] = 0
 
                 if photos:
-                    current_photo = photos[st.session_state[idx_key]]
+                    current_photo = photo_url(photos[st.session_state[idx_key]])
                     img_html = f'<img src="{current_photo}">'
                 else:
                     img_html = f"""
@@ -1186,7 +1234,7 @@ def page_animals():
             if st.button("Supprimer",use_container_width=True):
                 a_to_delete = next((a for a in st.session_state.animals if a["id"]==sel_id), None)
                 if a_to_delete:
-                    photos_to_delete = a_to_delete.get("photos") or ([a_to_delete["photo"]] if a_to_delete.get("photo") else [])
+                    photos_to_delete = [photo_url(p) for p in (a_to_delete.get("photos") or ([{"url": a_to_delete["photo"]}] if a_to_delete.get("photo") else []))]
                     if photos_to_delete:
                         with st.spinner("Suppression des photos…"):
                             supa_storage.delete_photos(photos_to_delete)
@@ -1201,15 +1249,22 @@ def page_animals():
 def photo_uploader_block(key_prefix, current_photos):
     """
     Gère l'upload/suppression de photos via Supabase Storage.
-    Les photos sont stockées sur Supabase, seules les URLs sont gardées.
-    Retourne la liste des URLs publiques.
+    Les photos sont stockées sur Supabase, seules les URLs (+ date de prise) sont gardées
+    en session sous la forme {"url":..., "date":"YYYY-MM-DD"}.
+    Retourne la liste des entrées photo (dicts).
     """
     state_key = f"photos_edit_{key_prefix}"
     hash_key  = f"{state_key}_last_hash"
 
     # Initialiser depuis current_photos si pas encore en session
     if state_key not in st.session_state:
-        st.session_state[state_key] = [p for p in (current_photos or []) if p]
+        normed = []
+        for p in (current_photos or []):
+            if isinstance(p, dict) and p.get("url"):
+                normed.append({"url": p["url"], "date": p.get("date","") or ""})
+            elif isinstance(p, str) and p:
+                normed.append({"url": p, "date": ""})
+        st.session_state[state_key] = normed
 
     photos = st.session_state[state_key]
 
@@ -1217,7 +1272,10 @@ def photo_uploader_block(key_prefix, current_photos):
     if photos:
         lightbox_html = ""
         thumbs_html   = ""
-        for i, url in enumerate(photos):
+        for i, p in enumerate(photos):
+            url = photo_url(p)
+            d   = photo_date(p)
+            date_badge = f'<div style="position:absolute;bottom:2px;left:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;text-align:center;border-radius:6px;padding:1px 0;">{d}</div>' if d else ""
             lightbox_html += f"""
             <div id="lb_{key_prefix}_{i}"
                  style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);
@@ -1234,6 +1292,7 @@ def photo_uploader_block(key_prefix, current_photos):
                    onclick="document.getElementById('lb_{key_prefix}_{i}').style.display='flex'"
                    style="width:80px;height:80px;object-fit:cover;border-radius:10px;
                           border:2px solid #E8F4F0;cursor:pointer;" />
+              {date_badge}
             </div>"""
 
         st.markdown(f"""
@@ -1246,14 +1305,22 @@ def photo_uploader_block(key_prefix, current_photos):
           <div style="display:flex;flex-wrap:wrap;">{thumbs_html}</div>
         </div>""", unsafe_allow_html=True)
 
-        # Boutons suppression
-        del_cols = st.columns(min(len(photos), 4))
-        for i, col in enumerate(del_cols[:len(photos)]):
-            with col:
-                if st.button(f"Suppr. photo {i+1}", key=f"del_photo_{key_prefix}_{i}",
-                             use_container_width=True):
-                    url_to_delete = st.session_state[state_key][i]
-                    # Supprimer de Supabase
+        # Suppression + édition de la date, photo par photo
+        for i, p in enumerate(photos):
+            dcol1, dcol2 = st.columns([2,1])
+            with dcol1:
+                new_date = st.date_input(
+                    f"Date — photo {i+1}",
+                    value=date.fromisoformat(photo_date(p)) if photo_date(p) else None,
+                    key=f"photo_date_{key_prefix}_{i}",
+                )
+                new_date_str = new_date.isoformat() if new_date else ""
+                if new_date_str != photo_date(p):
+                    st.session_state[state_key][i]["date"] = new_date_str
+            with dcol2:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if st.button(f"Suppr.", key=f"del_photo_{key_prefix}_{i}", use_container_width=True):
+                    url_to_delete = photo_url(st.session_state[state_key][i])
                     with st.spinner("Suppression…"):
                         supa_storage.delete_photos([url_to_delete])
                     st.session_state[state_key].pop(i)
@@ -1262,8 +1329,13 @@ def photo_uploader_block(key_prefix, current_photos):
     # ── Upload nouvelle photo ──
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
     label    = "Ajouter une photo" if not photos else "Ajouter une autre photo"
-    uploaded = st.file_uploader(label, type=["jpg","jpeg","png"],
-                                key=f"photo_upload_{key_prefix}")
+    upl_c1, upl_c2 = st.columns([2,1])
+    with upl_c1:
+        uploaded = st.file_uploader(label, type=["jpg","jpeg","png"],
+                                    key=f"photo_upload_{key_prefix}")
+    with upl_c2:
+        upload_date = st.date_input("Date de la photo", value=date.today(),
+                                     key=f"photo_upload_date_{key_prefix}")
 
     if uploaded is not None:
         file_bytes = uploaded.getvalue()
@@ -1276,7 +1348,10 @@ def photo_uploader_block(key_prefix, current_photos):
                 try:
                     filename  = f"{key_prefix}_{file_hash[:8]}.jpg"
                     public_url = supa_storage.upload_photo(file_bytes, filename)
-                    st.session_state[state_key].append(public_url)
+                    st.session_state[state_key].append({
+                        "url": public_url,
+                        "date": upload_date.isoformat() if upload_date else "",
+                    })
                     st.session_state[hash_key] = file_hash
                     alert_box("Photo uploadée sur Supabase !", "success")
                     st.rerun()
@@ -1400,7 +1475,7 @@ def animal_form():
         st.markdown('<div class="add-section-label">Photos</div>', unsafe_allow_html=True)
 
         if ini is not None:
-            current_photos = ini.get("photos") or ([ini["photo"]] if ini.get("photo") else [])
+            current_photos = ini.get("photos") or ([{"url": ini["photo"], "date": ""}] if ini.get("photo") else [])
         else:
             current_photos = []
 
@@ -1410,12 +1485,12 @@ def animal_form():
         photos_preview = new_photos or current_photos
         if photos_preview:
             st.markdown(f"""
-            <img src="{photos_preview[0]}" class="add-photo-thumb" />
+            <img src="{photo_url(photos_preview[0])}" class="add-photo-thumb" />
             """, unsafe_allow_html=True)
             if len(photos_preview) > 1:
                 st.markdown(f"""
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
-                  {"".join([f'<img src="{p}" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid {ACCENT_LIGHT};" />' for p in photos_preview[1:]])}
+                  {"".join([f'<img src="{photo_url(p)}" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid {ACCENT_LIGHT};" />' for p in photos_preview[1:]])}
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -1551,7 +1626,7 @@ def animal_form():
                         "status": status, "weight": weight, "notes": notes,
                         "origin": origin, "date_achat": date_achat.strip(),
                         "photos": final_photos,
-                        "photo":  final_photos[0] if final_photos else None,
+                        "photo":  photo_url(final_photos[0]) if final_photos else None,
                     }
                     if eid:
                         st.session_state.animals = [na if a["id"]==eid else a for a in st.session_state.animals]
@@ -1904,6 +1979,227 @@ def page_stock():
                         alert_box("Achat supprimé.", "success")
                         st.rerun()
 
+# ══════════════════════════ DÉPENSES ═════════════════════════════════
+def page_expenses():
+    auth = st.session_state.auth
+    is_obs = auth["role"] == "Observateur"
+    expenses = st.session_state.expenses
+
+    st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">{svg("receipt",22,EXPENSE_ACCENT)}<span style="font-size:22px;font-weight:700">Suivi des dépenses</span></div>', unsafe_allow_html=True)
+
+    today = date.today()
+    total_all   = sum(e["montant"] for e in expenses)
+    total_month = sum(e["montant"] for e in expenses if str(e.get("date","")).startswith(today.strftime("%Y-%m")))
+    total_year  = sum(e["montant"] for e in expenses if str(e.get("date","")).startswith(today.strftime("%Y")))
+    n_cats      = len({e["categorie"] for e in expenses})
+
+    c1, c2, c3, c4, c5 = st.columns([1,1,1,1,1])
+    c1.metric("Total dépenses", fmt(total_all))
+    c2.metric("Ce mois-ci", fmt(total_month))
+    c3.metric("Cette année", fmt(total_year))
+    c4.metric("Catégories utilisées", n_cats)
+    with c5:
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if not is_obs:
+            if st.button("Nouvelle dépense", use_container_width=True, key="btn_new_expense"):
+                st.session_state.show_expense_form = not st.session_state.show_expense_form
+                st.session_state.edit_expense_id = None
+                st.rerun()
+
+    eid_exp = st.session_state.edit_expense_id
+    ini_exp = next((e for e in expenses if e["id"]==eid_exp), None) if eid_exp else None
+    is_edit_exp = ini_exp is not None
+
+    if (st.session_state.show_expense_form or is_edit_exp) and not is_obs:
+        header_label = "Modifier la dépense" if is_edit_exp else "Enregistrer une dépense"
+        st.markdown(f"""<div style="background:{EXPENSE_ACCENT};border-radius:14px 14px 0 0;padding:14px 20px;
+                    color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px;">
+                    {svg("receipt",18,"#fff")}<span>{header_label}</span></div>""",
+                    unsafe_allow_html=True)
+
+        default_date  = datetime.strptime(ini_exp["date"], "%Y-%m-%d").date() \
+            if is_edit_exp and ini_exp.get("date") else datetime.now().date()
+        default_cat   = ini_exp["categorie"] if is_edit_exp else EXPENSE_CATEGORIES[0]
+        default_desc  = ini_exp.get("description","") if is_edit_exp else ""
+        default_montant = float(ini_exp["montant"]) if is_edit_exp else 0.0
+        default_paye  = ini_exp.get("payePar","") if is_edit_exp else ""
+        default_notes = ini_exp.get("notes","") if is_edit_exp else ""
+
+        with st.form("expense_form", clear_on_submit=not is_edit_exp):
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                f_date = st.date_input("Date de la dépense", value=default_date)
+                f_cat  = st.selectbox("Catégorie", EXPENSE_CATEGORIES,
+                                       index=EXPENSE_CATEGORIES.index(default_cat) if default_cat in EXPENSE_CATEGORIES else 0)
+            with fc2:
+                f_montant = st.number_input("Montant (MAD)", min_value=0.0, step=1.0, value=default_montant)
+                f_paye    = st.text_input("Payé par", value=default_paye, placeholder="ex: Ahmed")
+            f_desc  = st.text_input("Description", value=default_desc, placeholder="ex: Vaccination du troupeau")
+            f_notes = st.text_input("Notes (optionnel)", value=default_notes)
+
+            bc1, bc2 = st.columns([1,2]) if is_edit_exp else (None, None)
+            if is_edit_exp:
+                with bc1:
+                    cancel = st.form_submit_button("Annuler", use_container_width=True)
+                with bc2:
+                    submitted = st.form_submit_button("Enregistrer les modifications", use_container_width=True)
+            else:
+                cancel = False
+                submitted = st.form_submit_button("Enregistrer la dépense", use_container_width=True)
+
+            if cancel:
+                st.session_state.edit_expense_id = None
+                st.session_state.show_expense_form = False
+                st.rerun()
+
+            if submitted:
+                if f_montant <= 0:
+                    alert_box("Indique un montant valide.", "error")
+                elif not f_desc.strip():
+                    alert_box("Ajoute une description.", "error")
+                else:
+                    if is_edit_exp:
+                        updated = {
+                            "id": ini_exp["id"], "date": str(f_date), "categorie": f_cat,
+                            "description": f_desc.strip(), "montant": f_montant,
+                            "payePar": f_paye.strip(), "notes": f_notes.strip(),
+                        }
+                        st.session_state.expenses = [updated if x["id"]==ini_exp["id"] else x
+                                                      for x in st.session_state.expenses]
+                        sync_expenses()
+                        alert_box("Dépense modifiée !", "success")
+                        st.session_state.edit_expense_id = None
+                        st.session_state.show_expense_form = False
+                        st.rerun()
+                    else:
+                        new_id = (max([e["id"] for e in expenses], default=0) + 1)
+                        entry = {
+                            "id": new_id, "date": str(f_date), "categorie": f_cat,
+                            "description": f_desc.strip(), "montant": f_montant,
+                            "payePar": f_paye.strip(), "notes": f_notes.strip(),
+                        }
+                        st.session_state.expenses.append(entry)
+                        sync_expenses()
+                        alert_box(f"Dépense enregistrée : {fmt(f_montant)} — {f_cat}", "success")
+                        st.session_state.show_expense_form = False
+                        st.rerun()
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+    st.markdown("**Historique des dépenses**")
+    if not expenses:
+        st.info("Aucune dépense enregistrée pour le moment.")
+        return
+
+    filt_c1, filt_c2 = st.columns([2, 1])
+    with filt_c1:
+        filter_cat = st.selectbox("Filtrer par catégorie", ["Toutes"] + EXPENSE_CATEGORIES, key="expense_filter_cat")
+
+    expenses_sorted = sorted(expenses, key=lambda e: e.get("date",""), reverse=True)
+    if filter_cat != "Toutes":
+        expenses_sorted = [e for e in expenses_sorted if e["categorie"] == filter_cat]
+
+    if is_obs:
+        rows = [{
+            "Date": e["date"], "Catégorie": e["categorie"], "Description": e["description"],
+            "Montant": fmt(e["montant"]), "Payé par": e.get("payePar",""), "Notes": e.get("notes",""),
+        } for e in expenses_sorted]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Modifie directement une cellule, puis clique sur *Enregistrer les modifications du tableau*.")
+        edit_rows = [{
+            "id":          e["id"],
+            "Date":        pd.to_datetime(e.get("date",""), errors="coerce"),
+            "Catégorie":   e["categorie"],
+            "Description": e["description"],
+            "Montant (MAD)": float(e["montant"]),
+            "Payé par":    e.get("payePar",""),
+            "Notes":       e.get("notes",""),
+        } for e in expenses_sorted]
+        edit_df = pd.DataFrame(edit_rows).set_index("id")
+
+        edited_df = st.data_editor(
+            edit_df,
+            use_container_width=True,
+            num_rows="fixed",
+            key="expenses_table_editor",
+            column_config={
+                "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
+                "Catégorie": st.column_config.SelectboxColumn("Catégorie", options=EXPENSE_CATEGORIES),
+                "Description": st.column_config.TextColumn("Description"),
+                "Montant (MAD)": st.column_config.NumberColumn("Montant (MAD)", min_value=0.0, step=1.0),
+                "Payé par": st.column_config.TextColumn("Payé par"),
+                "Notes": st.column_config.TextColumn("Notes"),
+            },
+        )
+
+        if st.button("Enregistrer les modifications du tableau", key="save_expenses_table"):
+            shown_ids = set(edited_df.index.tolist())
+            new_entries = []
+            for eid_, row in edited_df.iterrows():
+                d = row["Date"]
+                date_str = d.strftime("%Y-%m-%d") if pd.notna(d) else ""
+                new_entries.append({
+                    "id":          int(eid_),
+                    "date":        date_str,
+                    "categorie":   row["Catégorie"],
+                    "description": row["Description"],
+                    "montant":     float(row["Montant (MAD)"]),
+                    "payePar":     row.get("Payé par","") or "",
+                    "notes":       row.get("Notes","") or "",
+                })
+            untouched = [e for e in st.session_state.expenses if e["id"] not in shown_ids]
+            st.session_state.expenses = new_entries + untouched
+            sync_expenses()
+            alert_box("Tableau mis à jour !", "success")
+            st.rerun()
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        st.markdown("**Répartition par catégorie**")
+        by_cat = {}
+        for e in expenses:
+            by_cat[e["categorie"]] = by_cat.get(e["categorie"], 0) + e["montant"]
+        if by_cat:
+            fig = go.Figure(go.Pie(labels=list(by_cat.keys()), values=list(by_cat.values()), hole=0.55,
+                                    marker_colors=[EXPENSE_ACCENT, "#C39BD3","#D2B4DE","#E8DAEF","#B983C7","#A569BD"]))
+            fig.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=260, showlegend=True,
+                legend=dict(orientation="v", x=1, y=0.5, font=dict(size=10)))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    with dc2:
+        st.markdown("**Dépenses par mois**")
+        by_month = {}
+        for e in expenses:
+            m = str(e.get("date",""))[:7]
+            if m:
+                by_month[m] = by_month.get(m, 0) + e["montant"]
+        if by_month:
+            months_sorted = sorted(by_month.keys())
+            fig2 = go.Figure(go.Bar(x=months_sorted, y=[by_month[m] for m in months_sorted],
+                                     marker_color=EXPENSE_ACCENT))
+            fig2.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=260,
+                plot_bgcolor="#fff", paper_bgcolor="#fff",
+                yaxis=dict(showgrid=False, title="MAD"), xaxis=dict(showgrid=False))
+            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+
+    if not is_obs:
+        with st.expander("Modifier / Supprimer une dépense"):
+            for e in expenses_sorted:
+                ec1, ec2, ec3 = st.columns([3, 1, 1])
+                with ec1:
+                    st.markdown(f"{e['date']} — **{e['categorie']}** — {e['description']} — {fmt(e['montant'])}")
+                with ec2:
+                    if st.button("Modifier", key=f"edit_expense_{e['id']}", use_container_width=True):
+                        st.session_state.edit_expense_id = e["id"]
+                        st.session_state.show_expense_form = True
+                        st.rerun()
+                with ec3:
+                    if st.button("Supprimer", key=f"del_expense_{e['id']}", use_container_width=True):
+                        st.session_state.expenses = [x for x in st.session_state.expenses if x["id"] != e["id"]]
+                        sync_expenses()
+                        alert_box("Dépense supprimée.", "success")
+                        st.rerun()
+
 # ══════════════════════════ STATISTIQUES ═════════════════════════════
 def page_stats():
     animals=st.session_state.animals
@@ -1943,6 +2239,22 @@ def page_stats():
     for a in animals: rc[a["race"]]=rc.get(a["race"],0)+1
     tags_html="".join([f'<span style="background:{ACCENT_LIGHT};border-radius:10px;padding:8px 14px;display:inline-flex;gap:8px;align-items:center;margin:4px;"><b style="color:{ACCENT}">{cnt}</b><span style="font-size:12px">{race}</span></span>' for race,cnt in rc.items()])
     st.markdown(f'<div style="display:flex;flex-wrap:wrap;">{tags_html}</div>', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("**Dépenses par catégorie**")
+    expenses = st.session_state.get("expenses", [])
+    by_cat = {}
+    for e in expenses:
+        by_cat[e["categorie"]] = by_cat.get(e["categorie"], 0) + e["montant"]
+    if by_cat:
+        fig4 = go.Figure(go.Bar(x=list(by_cat.values()), y=list(by_cat.keys()), orientation="h",
+                                 marker_color=EXPENSE_ACCENT))
+        fig4.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=max(180, 34*len(by_cat)),
+            plot_bgcolor="#fff", paper_bgcolor="#fff",
+            xaxis=dict(showgrid=False, title="MAD"), yaxis=dict(showgrid=False))
+        st.plotly_chart(fig4, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.caption("Aucune dépense enregistrée.")
 
 # ══════════════════════════ UTILISATEURS ═════════════════════════════
 def page_users():
@@ -2184,6 +2496,7 @@ def main():
     elif page=="Catalogue":    page_catalogue()
     elif page=="Ventes":       page_sales()
     elif page=="Stock":        page_stock()
+    elif page=="Depenses":     page_expenses()
     elif page=="Statistiques": page_stats()
     elif page=="Utilisateurs": page_users()
     elif page=="Paramètres":   page_settings()
