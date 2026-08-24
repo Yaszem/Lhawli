@@ -53,7 +53,7 @@ HEADERS_ANIMAUX = ["id","type","race","sex","birth","earTag","buyPrice",
 HEADERS_RACES   = ["type","race"]
 HEADERS_USERS   = ["email","password","name","role","statut","date_inscription"]
 #                                                    ^^^^^^^ En attente / Actif / Refusé
-HEADERS_STOCK   = ["id","date_achat","feedType","quantity","unit","quantityKg","buyPrice","notes"]
+HEADERS_STOCK   = ["id","date_achat","feedType","quantity","unit","quantityKg","buyPrice","notes","expenseId"]
 HEADERS_FEEDTYPES = ["feedType"]
 HEADERS_DEPENSES = ["id","date","categorie","description","montant","payePar","notes"]
 
@@ -264,6 +264,7 @@ def load_stock():
     for r in records:
         if not r.get("feedType"):
             continue
+        exp_id_raw = str(r.get("expenseId","")).strip()
         stock.append({
             "id":          int(r["id"]) if str(r.get("id","")).strip() else 0,
             "date_achat":  str(r.get("date_achat","")),
@@ -273,6 +274,7 @@ def load_stock():
             "quantityKg":  float(r["quantityKg"]) if str(r.get("quantityKg","")).strip() else 0.0,
             "buyPrice":    float(r["buyPrice"])   if str(r.get("buyPrice","")).strip()   else 0.0,
             "notes":       str(r.get("notes","")),
+            "expenseId":   int(exp_id_raw) if exp_id_raw else None,
         })
     return stock
 
@@ -412,7 +414,7 @@ def save_all_stock(stock):
         rows.append([
             s["id"], s.get("date_achat",""), s["feedType"], s["quantity"],
             s.get("unit","kg"), s.get("quantityKg", s["quantity"]),
-            s["buyPrice"], s.get("notes",""),
+            s["buyPrice"], s.get("notes",""), s.get("expenseId","") or "",
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")
@@ -425,7 +427,7 @@ def add_stock_entry(entry):
     ws.append_row([
         entry["id"], entry.get("date_achat",""), entry["feedType"], entry["quantity"],
         entry.get("unit","kg"), entry.get("quantityKg", entry["quantity"]),
-        entry["buyPrice"], entry.get("notes",""),
+        entry["buyPrice"], entry.get("notes",""), entry.get("expenseId","") or "",
     ], value_input_option="USER_ENTERED")
 
 
