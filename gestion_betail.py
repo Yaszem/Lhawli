@@ -1044,7 +1044,7 @@ def page_catalogue():
     fc1,fc2,fc3 = st.columns([2,1,1])
     with fc1: search = st.text_input("",placeholder="Rechercher par boucle, race…",label_visibility="collapsed")
     with fc2: ftype  = st.selectbox("",["Tous","Mouton","Vache"],label_visibility="collapsed")
-    with fc3: fstat  = st.selectbox("",["Tous statuts","Disponible","Vendu","Malade","En quarantaine"],label_visibility="collapsed")
+    with fc3: fstat  = st.selectbox("",["Tous statuts","Disponible","Vendu","Malade","Décédée"],label_visibility="collapsed")
 
     filtered = [a for a in animals
                 if (ftype=="Tous" or a["type"]==ftype)
@@ -1077,7 +1077,7 @@ def page_catalogue():
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
                 "Malade":        ("cat-badge-malade", "MALADE"),
-                "En quarantaine":("cat-badge-quaran", "QUARANTAINE"),
+                "Décédée":("cat-badge-quaran", "QUARANTAINE"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
             origin_val = a.get("origin","Achat")
