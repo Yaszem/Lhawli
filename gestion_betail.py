@@ -33,12 +33,14 @@ FEED_TYPES = [
 UNIT_TO_KG = {"kg": 1, "sachet": 1, "balle": 1}
 
 EXPENSE_CATEGORIES = [
+    "Vétérinaire",
     "Médicaments",
     "Transport",
-    "Nourriture",
+    "Équipement",
     "Main d'œuvre",
-    "Entretien",
-    "Eau",
+    "Entretien / Réparation",
+    "Eau / Électricité",
+    "Location de terrain",
     "Autre",
 ]
 
@@ -307,7 +309,9 @@ def sync_expenses():
 def stock_to_kg(qty, unit):
     return float(qty) * UNIT_TO_KG.get(unit, 1)
 
-def fmt(n): return f"{int(n):,} MAD".replace(",", " ")
+def fmt(n):
+    s = f"{float(n):,.2f}".replace(",", " ")
+    return f"{s} MAD"
 def age_str(birth):
     try:
         from datetime import date
@@ -322,6 +326,44 @@ def badge_cls(status):
 
 def origin_badge_cls(origin):
     return "badge-naissance" if origin=="Naissance" else "badge-achat"
+
+def render_trash_list(items, line_fn, on_delete, key_prefix, confirm=True):
+    """Affiche, juste sous un tableau, une liste compacte avec une icône 🗑 par ligne
+    pour supprimer rapidement un élément sans passer par un menu déroulant."""
+    if not items:
+        return
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:6px;margin:10px 0 4px;">
+      {svg("trash",13,"#8A8A8A")}<span style="font-size:11px;color:#8A8A8A;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Supprimer une ligne</span>
+    </div>""", unsafe_allow_html=True)
+    for it in items:
+        rid = it.get("id")
+        confirm_key = f"{key_prefix}_confirm_{rid}"
+        rc1, rc2 = st.columns([6, 1])
+        with rc1:
+            st.markdown(f"<div style='font-size:12px;color:#555;padding:9px 0;'>{line_fn(it)}</div>", unsafe_allow_html=True)
+        with rc2:
+            if st.button("🗑️", key=f"{key_prefix}_trash_{rid}", use_container_width=True,
+                         help="Supprimer cette ligne"):
+                if confirm:
+                    st.session_state[confirm_key] = True
+                    st.rerun()
+                else:
+                    on_delete(it)
+                    st.rerun()
+        if confirm and st.session_state.get(confirm_key):
+            wc1, wc2, wc3 = st.columns([3, 1, 1])
+            with wc1:
+                st.markdown(f"<div style='font-size:11px;color:#C62828;padding-top:6px;'>Confirmer la suppression ?</div>", unsafe_allow_html=True)
+            with wc2:
+                if st.button("Oui", key=f"{key_prefix}_yes_{rid}", use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    on_delete(it)
+                    st.rerun()
+            with wc3:
+                if st.button("Non", key=f"{key_prefix}_no_{rid}", use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
 
 def go_to_catalogue():
     st.session_state.page = "Catalogue"
@@ -480,10 +522,11 @@ def page_animal_detail(animal_id):
             c7,c8 = st.columns(2)
             with c7:
                 buy_p = st.number_input("Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)",
-                                         value=float(a["buyPrice"]), min_value=0.0,
+                                         value=float(a["buyPrice"]), min_value=0.0, step=0.01, format="%.2f",
                                          key=f"e_buy_{a['id']}")
             with c8:
                 sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0,
+                                          step=0.01, format="%.2f",
                                           key=f"e_sell_{a['id']}")
             stats  = ["Disponible","Vendu","Malade","En quarantaine"]
             status = st.selectbox("Statut", stats, index=stats.index(a["status"]), key=f"e_status_{a['id']}")
@@ -639,8 +682,8 @@ def show_edit_modal(animal_id):
     with c6: weight  = st.number_input("Poids (kg)", value=float(a["weight"]), min_value=0.0)
     date_achat = st.text_input("Date d'achat", value=a.get("date_achat",""), placeholder="YYYY-MM-DD")
     c7,c8 = st.columns(2)
-    with c7: buy_p  = st.number_input("Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)", value=float(a["buyPrice"]), min_value=0.0)
-    with c8: sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0)
+    with c7: buy_p  = st.number_input("Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)", value=float(a["buyPrice"]), min_value=0.0, step=0.01, format="%.2f")
+    with c8: sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0, step=0.01, format="%.2f")
     stats = ["Disponible","Vendu","Malade","En quarantaine"]
     status = st.selectbox("Statut", stats, index=stats.index(a["status"]))
     notes  = st.text_input("Notes", value=a.get("notes",""), placeholder="ex: bonne laitière…")
@@ -1185,9 +1228,9 @@ def page_animals():
                 "Naissance":    st.column_config.DateColumn("Naissance", format="YYYY-MM-DD"),
                 "Date d'achat": st.column_config.DateColumn("Date d'achat", format="YYYY-MM-DD"),
                 "Origine":      st.column_config.SelectboxColumn("Origine", options=["Achat","Naissance"]),
-                "Poids (kg)":   st.column_config.NumberColumn("Poids (kg)", min_value=0.0, step=1.0),
-                "Prix achat":   st.column_config.NumberColumn("Prix achat", min_value=0.0, step=1.0),
-                "Prix vente":   st.column_config.NumberColumn("Prix vente", min_value=0.0, step=1.0),
+                "Poids (kg)":   st.column_config.NumberColumn("Poids (kg)", min_value=0.0, step=0.01, format="%.2f"),
+                "Prix achat":   st.column_config.NumberColumn("Prix achat", min_value=0.0, step=0.01, format="%.2f"),
+                "Prix vente":   st.column_config.NumberColumn("Prix vente", min_value=0.0, step=0.01, format="%.2f"),
                 "Statut":       st.column_config.SelectboxColumn("Statut", options=["Disponible","Vendu","Malade","En quarantaine"]),
             },
         )
@@ -1217,8 +1260,8 @@ def page_animals():
             alert_box("Tableau mis à jour !", "success")
             st.rerun()
 
-        st.markdown("**Actions :**")
-        ac1,ac2,ac3=st.columns([2,1,1])
+        st.markdown("**Modifier un animal (photos, notes…) :**")
+        ac1,ac2=st.columns([3,1])
         with ac1:
             opts={a["earTag"]:a["id"] for a in filtered}
             sel_tag=st.selectbox("",list(opts.keys()),label_visibility="collapsed")
@@ -1228,17 +1271,22 @@ def page_animals():
                 st.session_state.edit_id   = sel_id
                 st.session_state.show_form = True
                 st.rerun()
-        with ac3:
-            if st.button("Supprimer",use_container_width=True):
-                a_to_delete = next((a for a in st.session_state.animals if a["id"]==sel_id), None)
-                if a_to_delete:
-                    photos_to_delete = [photo_url(p) for p in (a_to_delete.get("photos") or ([{"url": a_to_delete["photo"]}] if a_to_delete.get("photo") else []))]
-                    if photos_to_delete:
-                        with st.spinner("Suppression des photos…"):
-                            supa_storage.delete_photos(photos_to_delete)
-                st.session_state.animals=[a for a in st.session_state.animals if a["id"]!=sel_id]
-                sync_animals()
-                alert_box("Supprimé.", "success"); st.rerun()
+
+        def _delete_animal(a_to_delete):
+            photos_to_delete = [photo_url(p) for p in (a_to_delete.get("photos") or ([{"url": a_to_delete["photo"]}] if a_to_delete.get("photo") else []))]
+            if photos_to_delete:
+                with st.spinner("Suppression des photos…"):
+                    supa_storage.delete_photos(photos_to_delete)
+            st.session_state.animals=[a for a in st.session_state.animals if a["id"]!=a_to_delete["id"]]
+            sync_animals()
+            alert_box("Animal supprimé.", "success")
+
+        render_trash_list(
+            filtered,
+            line_fn=lambda a: f"{a['earTag']} — {a['type']} {a['race']} — {a['status']}",
+            on_delete=_delete_animal,
+            key_prefix="animal",
+        )
 
     if st.session_state.get("edit_modal_id") is not None:
         show_edit_modal(st.session_state.edit_modal_id)
@@ -1574,10 +1622,12 @@ def animal_form():
         with p1:
             buy_label = "Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)"
             buy_p  = st.number_input(buy_label,
-                value=float(ini["buyPrice"]) if ini else 0.0, min_value=0.0, key="af_buy")
+                value=float(ini["buyPrice"]) if ini else 0.0, min_value=0.0,
+                step=0.01, format="%.2f", key="af_buy")
         with p2:
             sell_p = st.number_input("Prix de vente (MAD)",
-                value=float(ini["sellPrice"]) if ini else 0.0, min_value=0.0, key="af_sell")
+                value=float(ini["sellPrice"]) if ini else 0.0, min_value=0.0,
+                step=0.01, format="%.2f", key="af_sell")
 
         # Bénéfice estimé live
         profit = sell_p - buy_p
@@ -1586,9 +1636,9 @@ def animal_form():
         <div style="background:#F8F8F8;border-radius:10px;padding:10px 14px;
                     display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:11px;color:#8A8A8A;text-transform:uppercase;letter-spacing:.06em;">Bénéfice estimé</span>
-          <span style="font-weight:700;font-size:15px;color:{profit_c}">{"+" if profit>=0 else ""}{int(profit):,} MAD</span>
+          <span style="font-weight:700;font-size:15px;color:{profit_c}">{"+" if profit>=0 else ""}{fmt(profit)}</span>
         </div>
-        """.replace(",", " "), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
         # Groupe Statut & Notes
         st.markdown('<div class="add-section-label">Statut & Notes</div>', unsafe_allow_html=True)
@@ -1667,7 +1717,7 @@ def page_sales():
             vc1,vc2,vc3=st.columns([1.5,1.5,1])
             with vc1: v_tag=st.selectbox("N° de boucle",tags,index=idx,key="vente_tag")
             asel=next((a for a in dispos if a["earTag"]==v_tag),None)
-            with vc2: v_prix=st.number_input("Prix de vente (MAD)",value=float(asel["sellPrice"]) if asel else 0.0,min_value=0.0,key="vente_prix")
+            with vc2: v_prix=st.number_input("Prix de vente (MAD)",value=float(asel["sellPrice"]) if asel else 0.0,min_value=0.0,step=0.01,format="%.2f",key="vente_prix")
             if asel:
                 profit=v_prix-asel["buyPrice"]
                 st.markdown(f"""
@@ -1717,6 +1767,37 @@ def page_sales():
         st.dataframe(pd.DataFrame(rows2),use_container_width=True,hide_index=True)
 
 # ══════════════════════════ STOCK D'ALIMENTATION ═════════════════════
+# ── Lien Stock ↔ Dépenses ─────────────────────────────────────────
+def _upsert_stock_expense(stock_entry, f_type, f_price, f_date, f_notes):
+    """Crée ou met à jour la dépense liée à un achat de stock (catégorie Nourriture)."""
+    exp_id = stock_entry.get("expenseId")
+    desc = f"Achat alimentation : {f_type}"
+    if exp_id:
+        found = False
+        for e in st.session_state.expenses:
+            if e["id"] == exp_id:
+                e["date"] = str(f_date); e["categorie"] = "Nourriture"
+                e["description"] = desc; e["montant"] = f_price
+                e["notes"] = f_notes or ""
+                found = True
+                break
+        if not found:
+            exp_id = None
+    if not exp_id:
+        new_exp_id = (max([e["id"] for e in st.session_state.expenses], default=0) + 1)
+        st.session_state.expenses.append({
+            "id": new_exp_id, "date": str(f_date), "categorie": "Nourriture",
+            "description": desc, "montant": f_price, "payePar": "", "notes": f_notes or "",
+        })
+        stock_entry["expenseId"] = new_exp_id
+    sync_expenses()
+
+def _delete_stock_expense(stock_entry):
+    exp_id = stock_entry.get("expenseId")
+    if exp_id:
+        st.session_state.expenses = [e for e in st.session_state.expenses if e["id"] != exp_id]
+        sync_expenses()
+
 def page_stock():
     auth = st.session_state.auth
     is_obs = auth["role"] == "Observateur"
@@ -1802,13 +1883,13 @@ def page_stock():
                 f_type = st.selectbox("Type d'aliment", feed_types_list,
                                        index=feed_types_list.index(default_type) if default_type in feed_types_list else 0)
             with fc2:
-                f_qty  = st.number_input("Quantité", min_value=0.0, step=1.0, value=default_qty)
+                f_qty  = st.number_input("Quantité", min_value=0.0, step=0.01, format="%.2f", value=default_qty)
                 unit_keys = list(UNIT_TO_KG.keys())
                 f_unit = st.selectbox("Unité", unit_keys,
                                        index=unit_keys.index(default_unit) if default_unit in unit_keys else 0)
             fc3, fc4 = st.columns(2)
             with fc3:
-                f_price = st.number_input("Prix d'achat (MAD)", min_value=0.0, step=1.0, value=default_price)
+                f_price = st.number_input("Prix d'achat (MAD)", min_value=0.0, step=0.01, format="%.2f", value=default_price)
             with fc4:
                 f_notes = st.text_input("Notes (fournisseur, remarque...)", value=default_notes)
 
@@ -1841,11 +1922,13 @@ def page_stock():
                             "quantityKg": stock_to_kg(f_qty, f_unit),
                             "buyPrice":   f_price,
                             "notes":      f_notes,
+                            "expenseId":  ini_stock.get("expenseId"),
                         }
+                        _upsert_stock_expense(updated, f_type, f_price, f_date, f_notes)
                         st.session_state.stock = [updated if x["id"]==ini_stock["id"] else x
                                                    for x in st.session_state.stock]
                         sync_stock()
-                        alert_box("Achat modifié !", "success")
+                        alert_box("Achat modifié ! (dépense « Nourriture » liée mise à jour)", "success")
                         st.session_state.edit_stock_id = None
                         st.session_state.show_stock_form = False
                         st.rerun()
@@ -1860,10 +1943,12 @@ def page_stock():
                             "quantityKg": stock_to_kg(f_qty, f_unit),
                             "buyPrice":   f_price,
                             "notes":      f_notes,
+                            "expenseId":  None,
                         }
+                        _upsert_stock_expense(entry, f_type, f_price, f_date, f_notes)
                         st.session_state.stock.append(entry)
                         sync_stock()
-                        alert_box(f"Achat enregistré : {f_qty:g} {f_unit} de {f_type}", "success")
+                        alert_box(f"Achat enregistré : {f_qty:g} {f_unit} de {f_type} (dépense « Nourriture » créée automatiquement)", "success")
                         st.session_state.show_stock_form = False
                         st.rerun()
         st.markdown("<hr>", unsafe_allow_html=True)
@@ -1914,22 +1999,23 @@ def page_stock():
             column_config={
                 "Date d'achat": st.column_config.DateColumn("Date d'achat", format="YYYY-MM-DD"),
                 "Type":  st.column_config.SelectboxColumn("Type", options=st.session_state.feed_types),
-                "Quantité": st.column_config.NumberColumn("Quantité", min_value=0.0, step=1.0),
+                "Quantité": st.column_config.NumberColumn("Quantité", min_value=0.0, step=0.01, format="%.2f"),
                 "Unité": st.column_config.SelectboxColumn("Unité", options=list(UNIT_TO_KG.keys())),
-                "Prix d'achat (MAD)": st.column_config.NumberColumn("Prix d'achat (MAD)", min_value=0.0, step=1.0),
+                "Prix d'achat (MAD)": st.column_config.NumberColumn("Prix d'achat (MAD)", min_value=0.0, step=0.01, format="%.2f"),
                 "Notes": st.column_config.TextColumn("Notes"),
             },
         )
 
         if st.button("Enregistrer les modifications du tableau", key="save_stock_table"):
             shown_ids = set(edited_df.index.tolist())
+            id_to_expense = {s["id"]: s.get("expenseId") for s in st.session_state.stock}
             new_entries = []
             for sid, row in edited_df.iterrows():
                 qty  = float(row["Quantité"])
                 unit = row["Unité"]
                 d = row["Date d'achat"]
                 date_str = d.strftime("%Y-%m-%d") if pd.notna(d) else ""
-                new_entries.append({
+                new_entry = {
                     "id":         int(sid),
                     "date_achat": date_str,
                     "feedType":   row["Type"],
@@ -1938,11 +2024,15 @@ def page_stock():
                     "quantityKg": stock_to_kg(qty, unit),
                     "buyPrice":   float(row["Prix d'achat (MAD)"]),
                     "notes":      row.get("Notes","") or "",
-                })
+                    "expenseId":  id_to_expense.get(int(sid)),
+                }
+                _upsert_stock_expense(new_entry, new_entry["feedType"], new_entry["buyPrice"],
+                                       new_entry["date_achat"], new_entry["notes"])
+                new_entries.append(new_entry)
             untouched = [s for s in st.session_state.stock if s["id"] not in shown_ids]
             st.session_state.stock = new_entries + untouched
             sync_stock()
-            alert_box("Tableau mis à jour !", "success")
+            alert_box("Tableau mis à jour ! (dépenses « Nourriture » liées synchronisées)", "success")
             st.rerun()
 
 
@@ -1960,22 +2050,29 @@ def page_stock():
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     if not is_obs:
-        with st.expander("Modifier / Supprimer un achat"):
-            for s in stock_sorted:
-                dc1, dc2, dc3 = st.columns([3, 1, 1])
-                with dc1:
-                    st.markdown(f"{s['date_achat']} — **{s['feedType']}** — {s['quantity']:g} {s['unit']} — {fmt(s['buyPrice'])}")
-                with dc2:
-                    if st.button("Modifier", key=f"edit_stock_{s['id']}", use_container_width=True):
-                        st.session_state.edit_stock_id = s["id"]
-                        st.session_state.show_stock_form = True
-                        st.rerun()
-                with dc3:
-                    if st.button("Supprimer", key=f"del_stock_{s['id']}", use_container_width=True):
-                        st.session_state.stock = [x for x in st.session_state.stock if x["id"] != s["id"]]
-                        sync_stock()
-                        alert_box("Achat supprimé.", "success")
-                        st.rerun()
+        st.markdown("**Modifier un achat :**")
+        mc1, mc2 = st.columns([3,1])
+        with mc1:
+            opts_s = {f"{s['date_achat']} — {s['feedType']} — {s['quantity']:g} {s['unit']}": s["id"] for s in stock_sorted}
+            sel_lbl = st.selectbox("", list(opts_s.keys()), label_visibility="collapsed", key="stock_edit_select")
+        with mc2:
+            if st.button("Modifier", key="btn_edit_stock_sel", use_container_width=True):
+                st.session_state.edit_stock_id = opts_s[sel_lbl]
+                st.session_state.show_stock_form = True
+                st.rerun()
+
+        def _delete_stock(s_to_delete):
+            _delete_stock_expense(s_to_delete)
+            st.session_state.stock = [x for x in st.session_state.stock if x["id"] != s_to_delete["id"]]
+            sync_stock()
+            alert_box("Achat supprimé (et la dépense « Nourriture » liée aussi).", "success")
+
+        render_trash_list(
+            stock_sorted,
+            line_fn=lambda s: f"{s['date_achat']} — {s['feedType']} — {s['quantity']:g} {s['unit']} — {fmt(s['buyPrice'])}",
+            on_delete=_delete_stock,
+            key_prefix="stock",
+        )
 
 # ══════════════════════════ DÉPENSES ═════════════════════════════════
 def page_expenses():
@@ -2030,7 +2127,7 @@ def page_expenses():
                 f_cat  = st.selectbox("Catégorie", EXPENSE_CATEGORIES,
                                        index=EXPENSE_CATEGORIES.index(default_cat) if default_cat in EXPENSE_CATEGORIES else 0)
             with fc2:
-                f_montant = st.number_input("Montant (MAD)", min_value=0.0, step=1.0, value=default_montant)
+                f_montant = st.number_input("Montant (MAD)", min_value=0.0, step=0.01, format="%.2f", value=default_montant)
                 f_paye    = st.text_input("Payé par", value=default_paye, placeholder="ex: Ahmed")
             f_desc  = st.text_input("Description", value=default_desc, placeholder="ex: Vaccination du troupeau")
             f_notes = st.text_input("Notes (optionnel)", value=default_notes)
@@ -2052,14 +2149,13 @@ def page_expenses():
 
             if submitted:
                 if f_montant <= 0:
-                    alert_box("Indique un montant valide.", "error")
-                elif not f_desc.strip():
-                    alert_box("Ajoute une description.", "error")
+                    alert_box("Indique au moins un montant.", "error")
                 else:
+                    f_desc_final = f_desc.strip() or f_cat
                     if is_edit_exp:
                         updated = {
                             "id": ini_exp["id"], "date": str(f_date), "categorie": f_cat,
-                            "description": f_desc.strip(), "montant": f_montant,
+                            "description": f_desc_final, "montant": f_montant,
                             "payePar": f_paye.strip(), "notes": f_notes.strip(),
                         }
                         st.session_state.expenses = [updated if x["id"]==ini_exp["id"] else x
@@ -2073,7 +2169,7 @@ def page_expenses():
                         new_id = (max([e["id"] for e in expenses], default=0) + 1)
                         entry = {
                             "id": new_id, "date": str(f_date), "categorie": f_cat,
-                            "description": f_desc.strip(), "montant": f_montant,
+                            "description": f_desc_final, "montant": f_montant,
                             "payePar": f_paye.strip(), "notes": f_notes.strip(),
                         }
                         st.session_state.expenses.append(entry)
@@ -2124,7 +2220,7 @@ def page_expenses():
                 "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
                 "Catégorie": st.column_config.SelectboxColumn("Catégorie", options=EXPENSE_CATEGORIES),
                 "Description": st.column_config.TextColumn("Description"),
-                "Montant (MAD)": st.column_config.NumberColumn("Montant (MAD)", min_value=0.0, step=1.0),
+                "Montant (MAD)": st.column_config.NumberColumn("Montant (MAD)", min_value=0.0, step=0.01, format="%.2f"),
                 "Payé par": st.column_config.TextColumn("Payé par"),
                 "Notes": st.column_config.TextColumn("Notes"),
             },
@@ -2181,22 +2277,32 @@ def page_expenses():
             st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
     if not is_obs:
-        with st.expander("Modifier / Supprimer une dépense"):
-            for e in expenses_sorted:
-                ec1, ec2, ec3 = st.columns([3, 1, 1])
-                with ec1:
-                    st.markdown(f"{e['date']} — **{e['categorie']}** — {e['description']} — {fmt(e['montant'])}")
-                with ec2:
-                    if st.button("Modifier", key=f"edit_expense_{e['id']}", use_container_width=True):
-                        st.session_state.edit_expense_id = e["id"]
-                        st.session_state.show_expense_form = True
-                        st.rerun()
-                with ec3:
-                    if st.button("Supprimer", key=f"del_expense_{e['id']}", use_container_width=True):
-                        st.session_state.expenses = [x for x in st.session_state.expenses if x["id"] != e["id"]]
-                        sync_expenses()
-                        alert_box("Dépense supprimée.", "success")
-                        st.rerun()
+        st.markdown("**Modifier une dépense :**")
+        emc1, emc2 = st.columns([3,1])
+        with emc1:
+            opts_e = {f"{e['date']} — {e['categorie']} — {e['description'] or '(sans description)'} — {fmt(e['montant'])}": e["id"] for e in expenses_sorted}
+            sel_lbl_e = st.selectbox("", list(opts_e.keys()), label_visibility="collapsed", key="expense_edit_select")
+        with emc2:
+            if st.button("Modifier", key="btn_edit_expense_sel", use_container_width=True):
+                st.session_state.edit_expense_id = opts_e[sel_lbl_e]
+                st.session_state.show_expense_form = True
+                st.rerun()
+
+        def _delete_expense(e_to_delete):
+            st.session_state.expenses = [x for x in st.session_state.expenses if x["id"] != e_to_delete["id"]]
+            sync_expenses()
+            linked_stock = next((s for s in st.session_state.stock if s.get("expenseId") == e_to_delete["id"]), None)
+            if linked_stock:
+                alert_box("Dépense supprimée. Note : l'achat de stock lié reste dans le Stock (non supprimé).", "warning")
+            else:
+                alert_box("Dépense supprimée.", "success")
+
+        render_trash_list(
+            expenses_sorted,
+            line_fn=lambda e: f"{e['date']} — {e['categorie']} — {e['description'] or '(sans description)'} — {fmt(e['montant'])}",
+            on_delete=_delete_expense,
+            key_prefix="expense",
+        )
 
 # ══════════════════════════ STATISTIQUES ═════════════════════════════
 def page_stats():
