@@ -142,6 +142,7 @@ def init_database():
 # ══════════════════════════════════════════════════════════════════════
 # LECTURE
 # ══════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=45, show_spinner=False)
 def load_animals():
     import json
     sh = get_spreadsheet()
@@ -185,6 +186,7 @@ def load_animals():
     return animals
 
 
+@st.cache_data(ttl=45, show_spinner=False)
 def load_races():
     sh = get_spreadsheet()
     ws = sh.worksheet("Races")
@@ -198,6 +200,7 @@ def load_races():
     return races_mouton, races_vache
 
 
+@st.cache_data(ttl=45, show_spinner=False)
 def load_users():
     sh = get_spreadsheet()
     ws = sh.worksheet("Users")
@@ -256,6 +259,7 @@ def load_users():
     return users
 
 
+@st.cache_data(ttl=45, show_spinner=False)
 def load_stock():
     sh = get_spreadsheet()
     ws = sh.worksheet("Stock")
@@ -279,6 +283,7 @@ def load_stock():
     return stock
 
 
+@st.cache_data(ttl=45, show_spinner=False)
 def load_feed_types():
     """Charge la liste des types d'aliments depuis l'onglet TypesAliments."""
     sh = get_spreadsheet()
@@ -292,6 +297,7 @@ def load_feed_types():
     return types
 
 
+@st.cache_data(ttl=45, show_spinner=False)
 def load_expenses():
     """Charge la liste des dépenses depuis l'onglet Depenses."""
     sh = get_spreadsheet()
@@ -346,6 +352,7 @@ def save_all_animals(animals):
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")
+    load_animals.clear()
 
 
 def save_all_users(users):
@@ -360,6 +367,7 @@ def save_all_users(users):
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")
+    load_users.clear()
 
 
 def register_user(email, password, name):
@@ -373,6 +381,7 @@ def register_user(email, password, name):
         [email.strip().lower(), hashed_pwd, name.strip(), "Observateur", "En attente", date_now],
         value_input_option="USER_ENTERED"
     )
+    load_users.clear()
 
 
 def migrate_plaintext_passwords():
@@ -396,6 +405,7 @@ def add_race(race_type, race_name):
     sh = get_spreadsheet()
     ws = sh.worksheet("Races")
     ws.append_row([race_type, race_name], value_input_option="USER_ENTERED")
+    load_races.clear()
 
 
 def add_feed_type(feed_type):
@@ -403,6 +413,7 @@ def add_feed_type(feed_type):
     sh = get_spreadsheet()
     ws = sh.worksheet("TypesAliments")
     ws.append_row([feed_type.strip()], value_input_option="USER_ENTERED")
+    load_feed_types.clear()
 
 
 def save_all_stock(stock):
@@ -418,6 +429,7 @@ def save_all_stock(stock):
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")
+    load_stock.clear()
 
 
 def add_stock_entry(entry):
@@ -429,6 +441,7 @@ def add_stock_entry(entry):
         entry.get("unit","kg"), entry.get("quantityKg", entry["quantity"]),
         entry["buyPrice"], entry.get("notes",""), entry.get("expenseId","") or "",
     ], value_input_option="USER_ENTERED")
+    load_stock.clear()
 
 
 def save_all_expenses(expenses):
@@ -443,6 +456,7 @@ def save_all_expenses(expenses):
         ])
     ws.clear()
     ws.update(rows, value_input_option="USER_ENTERED")
+    load_expenses.clear()
 
 
 def add_expense_entry(entry):
@@ -453,3 +467,4 @@ def add_expense_entry(entry):
         entry["id"], entry.get("date",""), entry["categorie"], entry.get("description",""),
         entry["montant"], entry.get("payePar",""), entry.get("notes",""),
     ], value_input_option="USER_ENTERED")
+    load_expenses.clear()
