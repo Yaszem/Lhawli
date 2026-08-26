@@ -146,7 +146,7 @@ st.markdown(f"""
   .badge-dispo  {{ background:#E8F5E9; color:#2E7D32; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-vendu  {{ background:#FFF3E0; color:#E65100; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-malade {{ background:#FFEBEE; color:#C62828; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
-  .badge-quaran {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
+  .badge-decede {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-naissance {{ background:#F3E8FD; color:#7B1FA2; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-achat  {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
 
@@ -385,7 +385,7 @@ def show_chart(fig):
 
 def badge_cls(status):
     return {"Disponible":"badge-dispo","Vendu":"badge-vendu",
-            "Malade":"badge-malade","En quarantaine":"badge-quaran"}.get(status,"badge-dispo")
+            "Malade":"badge-malade","En quarantaine":"badge-decede"}.get(status,"badge-dispo")
 
 def origin_badge_cls(origin):
     return "badge-naissance" if origin=="Naissance" else "badge-achat"
@@ -997,7 +997,7 @@ def page_dashboard():
             ("Disponibles",sum(1 for a in animals if a["status"]=="Disponible"),"#2E7D32"),
             ("Vendus",     sum(1 for a in animals if a["status"]=="Vendu"),     "#E65100"),
             ("Malades",    sum(1 for a in animals if a["status"]=="Malade"),    RED),
-            ("Quarantaine",sum(1 for a in animals if a["status"]=="En quarantaine"),"#1565C0"),
+            ("Décédé",sum(1 for a in animals if a["status"]=="En quarantaine"),"#1565C0"),
         ]:
             st.markdown(f"""<div style="display:flex;justify-content:space-between;align-items:center;
                 padding:8px 0;border-bottom:1px solid #EEE;">
@@ -1135,7 +1135,7 @@ def page_catalogue():
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
                 "Malade":        ("cat-badge-malade", "MALADE"),
-                "En quarantaine":("cat-badge-quaran", "QUARANTAINE"),
+                "En quarantaine":("cat-badge-decede", "DÉCÉDÉ"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
             origin_val = a.get("origin","Achat")
