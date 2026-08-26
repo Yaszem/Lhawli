@@ -146,7 +146,7 @@ st.markdown(f"""
   .badge-dispo  {{ background:#E8F5E9; color:#2E7D32; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-vendu  {{ background:#FFF3E0; color:#E65100; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-malade {{ background:#FFEBEE; color:#C62828; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
-  .badge-quaran {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
+  .badge-decedee {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-naissance {{ background:#F3E8FD; color:#7B1FA2; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-achat  {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
 
@@ -387,7 +387,7 @@ def show_chart(fig):
 
 def badge_cls(status):
     return {"Disponible":"badge-dispo","Vendu":"badge-vendu",
-            "Malade":"badge-malade","Décédée":"badge-quaran"}.get(status,"badge-dispo")
+            "Malade":"badge-malade","Décédée":"badge-decedee"}.get(status,"badge-dispo")
 
 def origin_badge_cls(origin):
     return "badge-naissance" if origin=="Naissance" else "badge-achat"
@@ -999,7 +999,7 @@ def page_dashboard():
             ("Disponibles",sum(1 for a in animals if a["status"]=="Disponible"),"#2E7D32"),
             ("Vendus",     sum(1 for a in animals if a["status"]=="Vendu"),     "#E65100"),
             ("Malades",    sum(1 for a in animals if a["status"]=="Malade"),    RED),
-            ("Quarantaine",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
+            ("Décédées",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
         ]:
             st.markdown(f"""<div style="display:flex;justify-content:space-between;align-items:center;
                 padding:8px 0;border-bottom:1px solid #EEE;">
@@ -1092,7 +1092,7 @@ def page_catalogue():
      .cat-badge-dispo  {{ background:#E8F5E9; color:#2E7D32; }}
      .cat-badge-vendu  {{ background:#FFF3E0; color:#E65100; }}
      .cat-badge-malade {{ background:#FFEBEE; color:#C62828; }}
-     .cat-badge-quaran {{ background:#E3F2FD; color:#1565C0; }}
+     .cat-badge-decedee {{ background:#E3F2FD; color:#1565C0; }}
      .cat-badge-origin {{ position:absolute; top:10px; right:10px; font-size:9px; font-weight:700;
          letter-spacing:.1em; text-transform:uppercase; padding:3px 8px; border-radius:2px;
          background:rgba(255,255,255,.9); color:#1A1A1A; }}
@@ -1137,7 +1137,7 @@ def page_catalogue():
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
                 "Malade":        ("cat-badge-malade", "MALADE"),
-                "Décédée":("cat-badge-quaran", "QUARANTAINE"),
+                "Décédée":("cat-badge-decedee", "DÉCÉDÉE"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
             origin_val = a.get("origin","Achat")
@@ -2523,7 +2523,7 @@ def page_users():
     st.markdown(f'<div style="display:flex;align-items:center;gap:8px;font-weight:700;">{svg("users",16,ACCENT)}<span>Utilisateurs actifs</span></div>', unsafe_allow_html=True)
     role_colors = {
         "Administrateur": ("badge-dispo",  "#2E7D32"),
-        "Gestionnaire":   ("badge-quaran", "#1565C0"),
+        "Gestionnaire":   ("badge-decedee", "#1565C0"),
         "Observateur":    ("badge-vendu",  "#E65100"),
     }
 
