@@ -999,7 +999,7 @@ def page_dashboard():
             ("Disponibles",sum(1 for a in animals if a["status"]=="Disponible"),"#2E7D32"),
             ("Vendus",     sum(1 for a in animals if a["status"]=="Vendu"),     "#E65100"),
             ("Malades",    sum(1 for a in animals if a["status"]=="Malade"),    RED),
-            ("Quarantaine",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
+            ("DERETETE",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
         ]:
             st.markdown(f"""<div style="display:flex;justify-content:space-between;align-items:center;
                 padding:8px 0;border-bottom:1px solid #EEE;">
@@ -1137,7 +1137,7 @@ def page_catalogue():
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
                 "Malade":        ("cat-badge-malade", "MALADE"),
-                "Décédée":("cat-badge-quaran", "s"),
+                "Décédée":("cat-badge-quaran", "QUARANTAINE"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
             origin_val = a.get("origin","Achat")
