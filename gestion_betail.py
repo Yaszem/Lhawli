@@ -146,7 +146,7 @@ st.markdown(f"""
   .badge-dispo  {{ background:#E8F5E9; color:#2E7D32; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-vendu  {{ background:#FFF3E0; color:#E65100; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-malade {{ background:#FFEBEE; color:#C62828; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
-  .badge-decede {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
+  .badge-quaran {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-naissance {{ background:#F3E8FD; color:#7B1FA2; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
   .badge-achat  {{ background:#E3F2FD; color:#1565C0; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; display:inline-block; }}
 
@@ -188,6 +188,8 @@ def sanitize_animals(animals):
         a["sex"]    = str(a.get("sex",    ""))
         a["birth"]  = str(a.get("birth",  ""))
         a["status"] = str(a.get("status", ""))
+        if a["status"] == "En quarantaine":
+            a["status"] = "Décédée"
         a["notes"]  = str(a.get("notes",  ""))
         a["origin"] = str(a.get("origin","")) or "Achat"
         a["date_achat"] = str(a.get("date_achat",""))
@@ -385,7 +387,7 @@ def show_chart(fig):
 
 def badge_cls(status):
     return {"Disponible":"badge-dispo","Vendu":"badge-vendu",
-            "Malade":"badge-malade","En quarantaine":"badge-decede"}.get(status,"badge-dispo")
+            "Malade":"badge-malade","Décédée":"badge-quaran"}.get(status,"badge-dispo")
 
 def origin_badge_cls(origin):
     return "badge-naissance" if origin=="Naissance" else "badge-achat"
@@ -591,7 +593,7 @@ def page_animal_detail(animal_id):
                 sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0,
                                           step=0.01, format="%.2f",
                                           key=f"e_sell_{a['id']}")
-            stats  = ["Disponible","Vendu","Malade","En quarantaine"]
+            stats  = ["Disponible","Vendu","Malade","Décédée"]
             status = st.selectbox("Statut", stats, index=stats.index(a["status"]), key=f"e_status_{a['id']}")
             notes  = st.text_input("Notes", value=a.get("notes",""),
                                     placeholder="ex: bonne laitière…", key=f"e_notes_{a['id']}")
@@ -747,7 +749,7 @@ def show_edit_modal(animal_id):
     c7,c8 = st.columns(2)
     with c7: buy_p  = st.number_input("Prix d'achat (MAD)" if origin=="Achat" else "Coût (optionnel, MAD)", value=float(a["buyPrice"]), min_value=0.0, step=0.01, format="%.2f")
     with c8: sell_p = st.number_input("Prix de vente (MAD)", value=float(a["sellPrice"]), min_value=0.0, step=0.01, format="%.2f")
-    stats = ["Disponible","Vendu","Malade","En quarantaine"]
+    stats = ["Disponible","Vendu","Malade","Décédée"]
     status = st.selectbox("Statut", stats, index=stats.index(a["status"]))
     notes  = st.text_input("Notes", value=a.get("notes",""), placeholder="ex: bonne laitière…")
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -997,7 +999,7 @@ def page_dashboard():
             ("Disponibles",sum(1 for a in animals if a["status"]=="Disponible"),"#2E7D32"),
             ("Vendus",     sum(1 for a in animals if a["status"]=="Vendu"),     "#E65100"),
             ("Malades",    sum(1 for a in animals if a["status"]=="Malade"),    RED),
-            ("Décédé",sum(1 for a in animals if a["status"]=="En quarantaine"),"#1565C0"),
+            ("Quarantaine",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
         ]:
             st.markdown(f"""<div style="display:flex;justify-content:space-between;align-items:center;
                 padding:8px 0;border-bottom:1px solid #EEE;">
@@ -1102,7 +1104,7 @@ def page_catalogue():
     fc1,fc2,fc3 = st.columns([2,1,1])
     with fc1: search = st.text_input("",placeholder="Rechercher par boucle, race…",label_visibility="collapsed")
     with fc2: ftype  = st.selectbox("",["Tous","Mouton","Vache"],label_visibility="collapsed")
-    with fc3: fstat  = st.selectbox("",["Tous statuts","Disponible","Vendu","Malade","En quarantaine"],label_visibility="collapsed")
+    with fc3: fstat  = st.selectbox("",["Tous statuts","Disponible","Vendu","Malade","Décédée"],label_visibility="collapsed")
 
     filtered = [a for a in animals
                 if (ftype=="Tous" or a["type"]==ftype)
@@ -1135,7 +1137,7 @@ def page_catalogue():
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
                 "Malade":        ("cat-badge-malade", "MALADE"),
-                "En quarantaine":("cat-badge-decede", "DÉCÉDÉ"),
+                "Décédée":("cat-badge-quaran", "QUARANTAINE"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
             origin_val = a.get("origin","Achat")
@@ -1289,7 +1291,7 @@ def page_animals():
                 "Poids (kg)":   st.column_config.NumberColumn("Poids (kg)", min_value=0.0, step=0.01, format="%.2f"),
                 "Prix achat":   st.column_config.NumberColumn("Prix achat", min_value=0.0, step=0.01, format="%.2f"),
                 "Prix vente":   st.column_config.NumberColumn("Prix vente", min_value=0.0, step=0.01, format="%.2f"),
-                "Statut":       st.column_config.SelectboxColumn("Statut", options=["Disponible","Vendu","Malade","En quarantaine"]),
+                "Statut":       st.column_config.SelectboxColumn("Statut", options=["Disponible","Vendu","Malade","Décédée"]),
             },
         )
 
@@ -1616,7 +1618,7 @@ def animal_form():
             "Disponible":    ("#E8F5E9","#2E7D32"),
             "Vendu":         ("#FFF3E0","#E65100"),
             "Malade":        ("#FFEBEE","#C62828"),
-            "En quarantaine":("#E3F2FD","#1565C0"),
+            "Décédée":("#E3F2FD","#1565C0"),
         }
         for s,(bg,fg) in badge_colors.items():
             st.markdown(f'<span class="add-badge" style="background:{bg};color:{fg};">{s.upper()}</span>', unsafe_allow_html=True)
@@ -1700,7 +1702,7 @@ def animal_form():
 
         # Groupe Statut & Notes
         st.markdown('<div class="add-section-label">Statut & Notes</div>', unsafe_allow_html=True)
-        stats  = ["Disponible","Vendu","Malade","En quarantaine"]
+        stats  = ["Disponible","Vendu","Malade","Décédée"]
         status = st.selectbox("Statut", stats,
             index=stats.index(ini["status"]) if ini else 0, key="af_status")
         notes  = st.text_input("Notes",
