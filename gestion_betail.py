@@ -1137,7 +1137,7 @@ def page_catalogue():
                 "Disponible":    ("cat-badge-dispo",  "DISPONIBLE"),
                 "Vendu":         ("cat-badge-vendu",  "VENDU"),
                 "Malade":        ("cat-badge-malade", "MALADE"),
-                "Décédée":("cat-badge-quaran", "QUARANTAINE"),
+                "Décédée":("cat-badge-quaran", "s"),
             }
             badge_cls_name, badge_label = badge_map.get(a["status"], ("cat-badge-dispo",""))
             origin_val = a.get("origin","Achat")
