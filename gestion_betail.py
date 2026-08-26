@@ -999,7 +999,7 @@ def page_dashboard():
             ("Disponibles",sum(1 for a in animals if a["status"]=="Disponible"),"#2E7D32"),
             ("Vendus",     sum(1 for a in animals if a["status"]=="Vendu"),     "#E65100"),
             ("Malades",    sum(1 for a in animals if a["status"]=="Malade"),    RED),
-            ("DERETETE",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
+            ("Quarantaine",sum(1 for a in animals if a["status"]=="Décédée"),"#1565C0"),
         ]:
             st.markdown(f"""<div style="display:flex;justify-content:space-between;align-items:center;
                 padding:8px 0;border-bottom:1px solid #EEE;">
