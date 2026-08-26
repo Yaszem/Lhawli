@@ -320,6 +320,69 @@ def age_str(birth):
         return f"{m//12}a {m%12}m" if m>=12 else f"{m} mois"
     except: return birth
 
+CHART_PALETTE = [ACCENT, STOCK_ACCENT, EXPENSE_ACCENT, "#1565C0", "#7B1FA2", "#C62828", "#2E7D32"]
+
+def render_bar_chart(categories, series, colors=None, horizontal=False, height=220,
+                      stacked=False, value_suffix=""):
+    """Barres modernes à coins arrondis, grille légère sur un seul axe, tooltip au survol.
+    series: liste de tuples (nom, valeurs)."""
+    colors = colors or CHART_PALETTE
+    fig = go.Figure()
+    for i, (name, values) in enumerate(series):
+        color = colors[i % len(colors)]
+        if horizontal:
+            fig.add_trace(go.Bar(
+                y=categories, x=values, orientation="h", name=name,
+                marker=dict(color=color, cornerradius=6),
+                hovertemplate=f"%{{y}}: %{{x}}{value_suffix}<extra></extra>",
+            ))
+        else:
+            fig.add_trace(go.Bar(
+                x=categories, y=values, name=name,
+                marker=dict(color=color, cornerradius=6),
+                hovertemplate=f"%{{x}}: %{{y}}{value_suffix}<extra></extra>",
+            ))
+    fig.update_layout(
+        barmode="stack" if stacked else "group",
+        height=height, margin=dict(t=8, b=8, l=8, r=8),
+        plot_bgcolor="#fff", paper_bgcolor="#fff",
+        showlegend=len(series) > 1,
+        legend=dict(orientation="h", y=-0.18, x=0.5, xanchor="center", font=dict(size=11)),
+        hoverlabel=dict(bgcolor="#fff", font_size=12, bordercolor="#DDD"),
+        bargap=0.35, bargroupgap=0.12,
+    )
+    if horizontal:
+        fig.update_xaxes(showgrid=True, gridcolor="#EEEEEE", zeroline=False)
+        fig.update_yaxes(showgrid=False)
+    else:
+        fig.update_yaxes(showgrid=True, gridcolor="#EEEEEE", zeroline=False)
+        fig.update_xaxes(showgrid=False)
+    return fig
+
+def render_donut_chart(labels, values, colors=None, center_label="", height=210):
+    """Diagramme circulaire (donut) avec libellé central et légende interactive au survol."""
+    colors = colors or CHART_PALETTE
+    total = sum(values) if values else 0
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values, hole=0.62,
+        marker=dict(colors=[colors[i % len(colors)] for i in range(len(labels))],
+                    line=dict(color="#fff", width=2)),
+        textinfo="none", hoverinfo="label+value+percent",
+        hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
+    ))
+    fig.update_layout(
+        height=height, margin=dict(t=8, b=8, l=8, r=8),
+        showlegend=True,
+        legend=dict(orientation="v", x=1, y=0.5, font=dict(size=11)),
+        hoverlabel=dict(bgcolor="#fff", font_size=12, bordercolor="#DDD"),
+        annotations=[dict(text=f"<b>{total:g}</b><br>{center_label}", x=0.5, y=0.5,
+                           font_size=13, showarrow=False)],
+    )
+    return fig
+
+def show_chart(fig):
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
 def badge_cls(status):
     return {"Disponible":"badge-dispo","Vendu":"badge-vendu",
             "Malade":"badge-malade","En quarantaine":"badge-quaran"}.get(status,"badge-dispo")
@@ -922,20 +985,12 @@ def page_dashboard():
     cd,cb,cs = st.columns([1.1,2,1])
     with cd:
         st.markdown("**Répartition**")
-        fig = go.Figure(go.Pie(labels=["Moutons","Vaches"],values=[tm,tv],hole=0.6,
-                               marker_colors=[ACCENT,ACCENT_LIGHT],textinfo="none"))
-        fig.update_layout(margin=dict(t=10,b=10,l=10,r=10),height=180,showlegend=True,
-            legend=dict(orientation="v",x=1,y=0.5,font=dict(size=11)),
-            annotations=[dict(text=f"<b>{tm+tv}</b><br>bêtes",x=0.5,y=0.5,font_size=13,showarrow=False)])
-        st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":False})
+        show_chart(render_donut_chart(["Moutons","Vaches"], [tm,tv],
+                                       colors=[ACCENT, ACCENT_LIGHT], center_label="bêtes", height=180))
     with cb:
         st.markdown("**Activité mensuelle**")
         mois=["Jan","Fév","Mar","Avr","Mai","Jun","Jul"]; vals=[3,5,4,7,6,8,5]
-        colors=[ACCENT if m in ("Mai","Jun") else ACCENT_LIGHT for m in mois]
-        fig2=go.Figure(go.Bar(x=mois,y=vals,marker_color=colors,width=0.55))
-        fig2.update_layout(margin=dict(t=10,b=10,l=10,r=10),height=180,plot_bgcolor="#fff",paper_bgcolor="#fff",
-                           yaxis=dict(showgrid=False,showticklabels=False),xaxis=dict(showgrid=False))
-        st.plotly_chart(fig2,use_container_width=True,config={"displayModeBar":False})
+        show_chart(render_bar_chart(mois, [("Animaux", vals)], colors=[ACCENT], height=180))
     with cs:
         st.markdown("**Statuts**")
         for label,val,color in [
@@ -2044,13 +2099,9 @@ def page_stock():
     for s in stock:
         by_type[s["feedType"]] = by_type.get(s["feedType"], 0) + s["quantityKg"]
     if by_type:
-        fig = go.Figure(go.Bar(
-            x=list(by_type.values()), y=list(by_type.keys()),
-            orientation="h", marker_color=STOCK_ACCENT))
-        fig.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=max(180, 36*len(by_type)),
-            plot_bgcolor="#fff", paper_bgcolor="#fff",
-            xaxis=dict(showgrid=False, title="kg"), yaxis=dict(showgrid=False))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        show_chart(render_bar_chart(list(by_type.keys()), [("Stock", list(by_type.values()))],
+                                     colors=[STOCK_ACCENT], horizontal=True,
+                                     height=max(180, 36*len(by_type)), value_suffix=" kg"))
 
     if not is_obs:
         st.markdown("**Modifier un achat :**")
@@ -2258,11 +2309,9 @@ def page_expenses():
         for e in expenses:
             by_cat[e["categorie"]] = by_cat.get(e["categorie"], 0) + e["montant"]
         if by_cat:
-            fig = go.Figure(go.Pie(labels=list(by_cat.keys()), values=list(by_cat.values()), hole=0.55,
-                                    marker_colors=[EXPENSE_ACCENT, "#C39BD3","#D2B4DE","#E8DAEF","#B983C7","#A569BD"]))
-            fig.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=260, showlegend=True,
-                legend=dict(orientation="v", x=1, y=0.5, font=dict(size=10)))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            show_chart(render_donut_chart(list(by_cat.keys()), list(by_cat.values()),
+                colors=[EXPENSE_ACCENT, "#C39BD3","#D2B4DE","#E8DAEF","#B983C7","#A569BD"],
+                center_label="MAD", height=260))
     with dc2:
         st.markdown("**Dépenses par mois**")
         by_month = {}
@@ -2272,12 +2321,8 @@ def page_expenses():
                 by_month[m] = by_month.get(m, 0) + e["montant"]
         if by_month:
             months_sorted = sorted(by_month.keys())
-            fig2 = go.Figure(go.Bar(x=months_sorted, y=[by_month[m] for m in months_sorted],
-                                     marker_color=EXPENSE_ACCENT))
-            fig2.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=260,
-                plot_bgcolor="#fff", paper_bgcolor="#fff",
-                yaxis=dict(showgrid=False, title="MAD"), xaxis=dict(showgrid=False))
-            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+            show_chart(render_bar_chart(months_sorted, [("Dépenses", [by_month[m] for m in months_sorted])],
+                                         colors=[EXPENSE_ACCENT], height=260, value_suffix=" MAD"))
 
     if not is_obs:
         st.markdown("**Modifier une dépense :**")
@@ -2320,21 +2365,14 @@ def page_stats():
     for col,(title,labels,values) in zip([col1,col2,col3],charts):
         with col:
             st.markdown(f"**{title}**")
-            fig=go.Figure(go.Bar(x=labels,y=values,marker_color=ACCENT,width=0.5))
-            fig.update_layout(margin=dict(t=10,b=10,l=10,r=10),height=180,
-                plot_bgcolor="#fff",paper_bgcolor="#fff",
-                yaxis=dict(showgrid=False),xaxis=dict(showgrid=False))
-            st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":False})
+            show_chart(render_bar_chart(labels, [("", values)], colors=[ACCENT], height=180))
     st.markdown("**Origine du troupeau**")
     n_naissance = sum(1 for a in animals if a.get("origin","Achat")=="Naissance")
     n_achat     = sum(1 for a in animals if a.get("origin","Achat")=="Achat")
     oc1, oc2 = st.columns(2)
     with oc1:
-        fig3 = go.Figure(go.Pie(labels=["Naissance","Achat"], values=[n_naissance,n_achat], hole=0.6,
-                                marker_colors=["#7B1FA2","#1565C0"], textinfo="value"))
-        fig3.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=180, showlegend=True,
-            legend=dict(orientation="v",x=1,y=0.5,font=dict(size=11)))
-        st.plotly_chart(fig3,use_container_width=True,config={"displayModeBar":False})
+        show_chart(render_donut_chart(["Naissance","Achat"], [n_naissance,n_achat],
+                                       colors=["#7B1FA2","#1565C0"], center_label="animaux", height=180))
     with oc2:
         st.markdown(f"""
         <div style="display:flex;flex-direction:column;gap:10px;padding-top:16px;">
@@ -2354,12 +2392,9 @@ def page_stats():
     for e in expenses:
         by_cat[e["categorie"]] = by_cat.get(e["categorie"], 0) + e["montant"]
     if by_cat:
-        fig4 = go.Figure(go.Bar(x=list(by_cat.values()), y=list(by_cat.keys()), orientation="h",
-                                 marker_color=EXPENSE_ACCENT))
-        fig4.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=max(180, 34*len(by_cat)),
-            plot_bgcolor="#fff", paper_bgcolor="#fff",
-            xaxis=dict(showgrid=False, title="MAD"), yaxis=dict(showgrid=False))
-        st.plotly_chart(fig4, use_container_width=True, config={"displayModeBar": False})
+        show_chart(render_bar_chart(list(by_cat.keys()), [("Dépenses", list(by_cat.values()))],
+                                     colors=[EXPENSE_ACCENT], horizontal=True,
+                                     height=max(180, 34*len(by_cat)), value_suffix=" MAD"))
     else:
         st.caption("Aucune dépense enregistrée.")
 
